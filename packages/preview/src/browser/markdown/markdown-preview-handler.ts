@@ -49,13 +49,17 @@ export class MarkdownPreviewHandler implements PreviewHandler {
     getSourceLineForElement(selectedElement: Element): number | undefined {
         let current: Element | null = selectedElement;
         while (current) {
+            const parent = current.parentElement;
+            if (parent && parent.classList.contains(PREVIEW_WIDGET_CLASS)) {
+                break;
+            }
+            current = current.parentElement;
+        }
+        while (current) {
             if (current.classList.contains('line')) {
                 break;
             }
-            if (current.classList.contains(PREVIEW_WIDGET_CLASS)) {
-                return undefined;
-            }
-            current = current.parentElement;
+            current = current.previousElementSibling;
         }
         if (!current) {
             return undefined;
