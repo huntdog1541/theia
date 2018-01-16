@@ -39,7 +39,7 @@ export class PreviewWidget extends BaseWidget implements StatefulWidget {
 
     protected resource: Resource | undefined;
     protected previewHandler: PreviewHandler | undefined;
-    protected readonly resourseDisposibles = new DisposableCollection();
+    protected readonly resourceDisposibles = new DisposableCollection();
 
     @inject(ResourceProvider)
     protected readonly resourceProvider: ResourceProvider;
@@ -95,7 +95,7 @@ export class PreviewWidget extends BaseWidget implements StatefulWidget {
 
     dispose(): void {
         super.dispose();
-        this.resourseDisposibles.dispose();
+        this.resourceDisposibles.dispose();
     }
 
     async start(uri: URI): Promise<void> {
@@ -103,20 +103,20 @@ export class PreviewWidget extends BaseWidget implements StatefulWidget {
         if (!previewHandler) {
             return;
         }
-        this.resourseDisposibles.dispose();
+        this.resourceDisposibles.dispose();
         const resource = this.resource = await this.resourceProvider(uri);
-        this.resourseDisposibles.push(resource);
+        this.resourceDisposibles.push(resource);
         if (resource.onDidChangeContents) {
-            this.resourseDisposibles.push(resource.onDidChangeContents(() => this.update()));
+            this.resourceDisposibles.push(resource.onDidChangeContents(() => this.update()));
         }
         const updateIfAffected = (affectedUri?: string) => {
             if (!affectedUri || affectedUri === uri.toString()) {
                 this.update();
             }
         };
-        this.resourseDisposibles.push(this.workspace.onDidOpenTextDocument((document: TextDocument) => updateIfAffected(document.uri)));
-        this.resourseDisposibles.push(this.workspace.onDidChangeTextDocument((params: DidChangeTextDocumentParams) => updateIfAffected(params.textDocument.uri)));
-        this.resourseDisposibles.push(this.workspace.onDidCloseTextDocument((document: TextDocument) => updateIfAffected(document.uri)));
+        this.resourceDisposibles.push(this.workspace.onDidOpenTextDocument((document: TextDocument) => updateIfAffected(document.uri)));
+        this.resourceDisposibles.push(this.workspace.onDidChangeTextDocument((params: DidChangeTextDocumentParams) => updateIfAffected(params.textDocument.uri)));
+        this.resourceDisposibles.push(this.workspace.onDidCloseTextDocument((document: TextDocument) => updateIfAffected(document.uri)));
 
         this.title.label = `Preview '${uri.path.base}'`;
         this.title.caption = this.title.label;
