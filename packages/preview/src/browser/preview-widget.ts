@@ -61,7 +61,6 @@ export class PreviewWidget extends BaseWidget implements StatefulWidget {
         this.addClass(PREVIEW_WIDGET_CLASS);
         this.node.tabIndex = 0;
         this.node.addEventListener('click', event => {
-            console.log(event.toElement);
             this.handleClick(event.toElement);
         });
         this.update();
