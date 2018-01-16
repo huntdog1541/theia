@@ -19,7 +19,10 @@ import {
     StatefulWidget
 } from '@theia/core/lib/browser';
 import URI from '@theia/core/lib/common/uri';
-import { ResourceProvider } from '@theia/core/lib/common';
+import {
+    ResourceProvider,
+    Disposable
+} from '@theia/core/lib/common';
 import {
     Workspace,
     TextDocument,
@@ -57,6 +60,10 @@ export class PreviewWidget extends BaseWidget implements StatefulWidget {
         this.title.closable = true;
         this.addClass(PREVIEW_WIDGET_CLASS);
         this.node.tabIndex = 0;
+        this.node.addEventListener('click', event => {
+            console.log(event.toElement);
+            this.handleClick(event.toElement);
+        });
         this.update();
     }
 
@@ -68,9 +75,9 @@ export class PreviewWidget extends BaseWidget implements StatefulWidget {
     onUpdateRequest(msg: Message): void {
         super.onUpdateRequest(msg);
         if (this.resource) {
-            this.resource.readContents().then(contents =>
-                this.node.innerHTML = this.renderHTML(contents)
-            );
+            this.resource.readContents().then(contents => {
+                this.node.innerHTML = this.renderHTML(contents);
+            });
         }
     }
 
@@ -136,5 +143,27 @@ export class PreviewWidget extends BaseWidget implements StatefulWidget {
         if (elementToReveal) {
             elementToReveal.scrollIntoView({ behavior: 'smooth' });
         }
+    }
+
+    clickHandler: ((selectedLine: number) => void) | undefined;
+
+    handleClick(element: Element): void {
+        if (!this.previewHandler) {
+            return;
+        }
+        const line = this.previewHandler.getSourceLineForElement(element);
+        if (!line) {
+            return;
+        }
+        if (this.clickHandler) {
+            this.clickHandler(line);
+        }
+    }
+
+    addSelectionHandler(handler: (selectedLine: number) => void): Disposable {
+        this.clickHandler = handler;
+        return Disposable.create(() => {
+            this.clickHandler = undefined;
+        });
     }
 }
