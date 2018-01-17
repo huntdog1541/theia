@@ -30,7 +30,6 @@ export class PreviewContribution implements CommandContribution, MenuContributio
     readonly label = 'Preview';
 
     protected readonly disposables = new DisposableCollection();
-    protected previewWidget: PreviewWidget | undefined;
 
     @inject(FrontendApplication)
     protected readonly app: FrontendApplication;
@@ -63,16 +62,8 @@ export class PreviewContribution implements CommandContribution, MenuContributio
     }
 
     protected getPreviewWidget(): PreviewWidget | undefined {
-        if (!this.previewWidget) {
-            // get restored widget, if exists
-            this.previewWidget = this.widgetManager.getWidgets(PREVIEW_WIDGET_FACTORY_ID).slice(-1)[0] as PreviewWidget;
-            if (this.previewWidget) {
-                this.previewWidget.disposed.connect(() => {
-                    this.previewWidget = undefined;
-                });
-            }
-        }
-        return this.previewWidget;
+        // note, this also ensure, we get resotored widgets
+        return this.widgetManager.getWidgets(PREVIEW_WIDGET_FACTORY_ID).slice(-1)[0] as PreviewWidget;
     }
 
     protected synchronizeSelectionToPreview(editor: TextEditor, position: Position): void {
@@ -151,10 +142,7 @@ export class PreviewContribution implements CommandContribution, MenuContributio
     protected async getOrCreateWidget(uri: URI, options: ApplicationShell.IMainAreaOptions): Promise<PreviewWidget> {
         let previewWidget = this.getPreviewWidget();
         if (!previewWidget) {
-            previewWidget = this.previewWidget = <PreviewWidget>await this.widgetManager.getOrCreateWidget(PREVIEW_WIDGET_FACTORY_ID);
-            previewWidget.disposed.connect(() => {
-                this.previewWidget = undefined;
-            });
+            previewWidget = <PreviewWidget>await this.widgetManager.getOrCreateWidget(PREVIEW_WIDGET_FACTORY_ID);
             this.app.shell.addToMainArea(previewWidget, options);
         }
         return previewWidget;
