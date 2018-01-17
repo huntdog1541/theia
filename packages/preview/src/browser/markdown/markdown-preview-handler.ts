@@ -7,7 +7,6 @@
 
 import { inject, injectable } from "inversify";
 import { ResourceProvider } from "@theia/core";
-import { Workspace } from '@theia/languages/lib/common';
 import { PreviewHandler } from '../preview-handler';
 import { PREVIEW_WIDGET_CLASS } from '../preview-widget';
 import URI from "@theia/core/lib/common/uri";
@@ -24,9 +23,6 @@ export class MarkdownPreviewHandler implements PreviewHandler {
     canHandle(uri: URI): boolean {
         return uri.path.ext === '.md';
     }
-
-    @inject(Workspace)
-    protected readonly workspace: Workspace;
 
     renderHTML(content: string): Promise<string> {
         return Promise.resolve(this.getEngine().render(content));
