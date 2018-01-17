@@ -159,7 +159,7 @@ export class PreviewWidget extends BaseWidget implements StatefulWidget {
         }
     }
 
-    didScrollToLine: ((line: number) => void) | undefined;
+    protected didScrollToLine: ((line: number) => void) | undefined;
     addDidScrollToLineHandler(handler: (line: number) => void): Disposable {
         this.didScrollToLine = handler;
         return Disposable.create(() => {
