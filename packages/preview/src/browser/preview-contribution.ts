@@ -90,7 +90,7 @@ export class PreviewContribution implements CommandContribution, MenuContributio
         if (!previewWidget || !previewWidget.uri || previewWidget.uri.toString() !== uri) {
             return Disposable.NULL;
         }
-        return previewWidget.addSelectionHandler(selectedLine => {
+        return previewWidget.addDidScrollToLineHandler(selectedLine => {
             editor.revealPosition({
                 line: selectedLine,
                 character: 0
