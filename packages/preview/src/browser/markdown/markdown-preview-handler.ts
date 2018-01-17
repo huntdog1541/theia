@@ -20,8 +20,8 @@ export class MarkdownPreviewHandler implements PreviewHandler {
     @inject(ResourceProvider)
     protected readonly resourceProvider: ResourceProvider;
 
-    canHandle(uri: URI): boolean {
-        return uri.path.ext === '.md';
+    canHandle(uri: URI): number {
+        return uri.path.ext === '.md' ? 500 : 0;
     }
 
     renderHTML(content: string): string {

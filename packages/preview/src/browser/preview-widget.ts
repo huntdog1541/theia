@@ -122,7 +122,7 @@ export class PreviewWidget extends BaseWidget implements StatefulWidget {
     }
 
     async start(uri: URI): Promise<void> {
-        const previewHandler = this.previewHandler = this.previewHandlerProvider.get(uri);
+        const previewHandler = this.previewHandler = this.previewHandlerProvider.findContribution(uri)[0];
         if (!previewHandler) {
             return;
         }
