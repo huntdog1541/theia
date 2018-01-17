@@ -93,9 +93,9 @@ export class PreviewContribution implements CommandContribution, MenuContributio
         return (this.previewHandlerProvider.canHandle(uri)) ? 50 : 0;
     }
 
-    async open(uri: URI, options: ApplicationShell.IMainAreaOptions = { mode: 'tab-after' }): Promise<PreviewWidget> {
+    async open(uri: URI, options: ApplicationShell.WidgetOptions = { area: 'main', mode: 'tab-after' }): Promise<PreviewWidget> {
         const previewWidget = await this.getOrCreateWidget(uri, options);
-        this.app.shell.activateMain(previewWidget.id);
+        this.app.shell.activateWidget(previewWidget.id);
         await previewWidget.start(uri);
         return previewWidget;
     }
@@ -127,7 +127,7 @@ export class PreviewContribution implements CommandContribution, MenuContributio
     protected async openForEditor(): Promise<void> {
         const uri = this.getCurrentEditorUri();
         if (uri) {
-            this.open(uri, { mode: 'split-right' });
+            this.open(uri, { area: 'main', mode: 'split-right' });
         }
     }
 
@@ -139,11 +139,11 @@ export class PreviewContribution implements CommandContribution, MenuContributio
         return undefined;
     }
 
-    protected async getOrCreateWidget(uri: URI, options: ApplicationShell.IMainAreaOptions): Promise<PreviewWidget> {
+    protected async getOrCreateWidget(uri: URI, options: ApplicationShell.WidgetOptions): Promise<PreviewWidget> {
         let previewWidget = this.getPreviewWidget();
         if (!previewWidget) {
             previewWidget = <PreviewWidget>await this.widgetManager.getOrCreateWidget(PREVIEW_WIDGET_FACTORY_ID);
-            this.app.shell.addToMainArea(previewWidget, options);
+            this.app.shell.addWidget(previewWidget, options);
         }
         return previewWidget;
     }
