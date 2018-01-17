@@ -7,13 +7,13 @@
 
 import { inject, injectable, named } from "inversify";
 import URI from "@theia/core/lib/common/uri";
-import { ContributionProvider } from "@theia/core";
+import { ContributionProvider, MaybePromise } from "@theia/core";
 
 export const PreviewHandler = Symbol('PreviewHandler');
 
 export interface PreviewHandler {
     canHandle(uri: URI): boolean;
-    renderHTML(content: string): Promise<string | undefined>;
+    renderHTML(content: string): MaybePromise<string | undefined>;
     findElementForSourceLine(sourceLine: number, renderedNode: Element): Element | undefined;
     getSourceLineForElement(selectedElement: Element): number | undefined;
 }

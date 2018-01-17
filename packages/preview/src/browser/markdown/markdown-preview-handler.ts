@@ -24,8 +24,8 @@ export class MarkdownPreviewHandler implements PreviewHandler {
         return uri.path.ext === '.md';
     }
 
-    renderHTML(content: string): Promise<string> {
-        return Promise.resolve(this.getEngine().render(content));
+    renderHTML(content: string): string {
+        return this.getEngine().render(content);
     }
 
     findElementForSourceLine(sourceLine: number, renderedNode: Element): Element | undefined {
