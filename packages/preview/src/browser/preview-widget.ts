@@ -34,6 +34,7 @@ import {
     PreviewHandler,
     PreviewHandlerProvider
 } from './preview-handler';
+import * as scrollIntoView from 'scroll-into-view';
 
 export const PREVIEW_WIDGET_CLASS = 'theia-preview-widget';
 
@@ -71,15 +72,19 @@ export class PreviewWidget extends BaseWidget implements StatefulWidget {
     }
 
     protected scrollSyncTimer: number | undefined = undefined;
+    protected preventScrollNotification: boolean = false;
     protected startScrollSync(): void {
         this.node.addEventListener('scroll', event => {
+            if (this.preventScrollNotification) {
+                return;
+            }
             if (this.scrollSyncTimer) {
                 window.clearTimeout(this.scrollSyncTimer);
             }
             this.scrollSyncTimer = window.setTimeout(() => {
                 const scrollTop = this.node.scrollTop;
                 this.didScroll(scrollTop);
-            }, 200);
+            }, 50);
         });
     }
 
@@ -175,7 +180,14 @@ export class PreviewWidget extends BaseWidget implements StatefulWidget {
         }
         const elementToReveal = this.previewHandler.findElementForSourceLine(sourceLine, this.node);
         if (elementToReveal) {
-            elementToReveal.scrollIntoView({ behavior: 'smooth' });
+            this.preventScrollNotification = true;
+            scrollIntoView(elementToReveal, {
+                time: 250
+            }, type => {
+                if (type === 'complete') {
+                    this.preventScrollNotification = false;
+                }
+            });
         }
     }
 

@@ -33,21 +33,21 @@ export class MarkdownPreviewHandler implements PreviewHandler {
         return this.getEngine().render(content);
     }
 
-    findElementForSourceLine(sourceLine: number, renderedNode: Element): Element | undefined {
+    findElementForSourceLine(sourceLine: number, renderedNode: HTMLElement): HTMLElement | undefined {
         const markedElements = renderedNode.getElementsByClassName('line');
-        let matchedElement: Element | undefined;
+        let matchedElement: HTMLElement | undefined;
         for (let i = 0; i < markedElements.length; i++) {
             const element = markedElements[i];
             const line = Number.parseInt(element.getAttribute('data-line') || '0');
             if (line > sourceLine) {
                 break;
             }
-            matchedElement = element;
+            matchedElement = element as HTMLElement;
         }
         return matchedElement;
     }
 
-    getSourceLineForElement(selectedElement: Element): number | undefined {
+    getSourceLineForElement(selectedElement: HTMLElement): number | undefined {
         let current: Element | null = selectedElement;
         while (current) {
             const parent = current.parentElement;
