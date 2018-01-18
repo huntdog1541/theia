@@ -62,7 +62,7 @@ export class PreviewContribution implements CommandContribution, MenuContributio
     }
 
     protected getPreviewWidget(): PreviewWidget | undefined {
-        // note, this also ensure, we get resotored widgets
+        // note: this also ensures, we get resotored widgets
         return this.widgetManager.getWidgets(PREVIEW_WIDGET_FACTORY_ID).slice(-1)[0] as PreviewWidget;
     }
 
@@ -81,14 +81,15 @@ export class PreviewContribution implements CommandContribution, MenuContributio
         if (!previewWidget || !previewWidget.uri || previewWidget.uri.toString() !== uri) {
             return Disposable.NULL;
         }
-        return previewWidget.onDidScroll(line => {
+        return previewWidget.onDidScroll(sourceLine => {
+            const line = Math.floor(sourceLine);
             editor.revealRange({
                 start: {
                     line,
                     character: 0
                 },
                 end: {
-                    line,
+                    line: line + 1,
                     character: 0
                 }
             },
@@ -136,7 +137,17 @@ export class PreviewContribution implements CommandContribution, MenuContributio
     protected async openForEditor(): Promise<void> {
         const uri = this.getCurrentEditorUri();
         if (uri) {
-            this.open(uri, { area: 'main', mode: 'split-right' });
+            this.open(uri, { area: 'main', mode: 'split-right' }).then(previewWidget => {
+                if (previewWidget) {
+                    window.setTimeout(() => {
+                        const editorWidget = this.editorManager.currentEditor;
+                        if (editorWidget) {
+                            const editor = editorWidget.editor;
+                            this.synchronizeSelectionToPreview(editor, editor.cursor);
+                        }
+                    }, 200);
+                }
+            });
         }
     }
 
