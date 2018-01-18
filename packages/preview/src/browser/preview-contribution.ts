@@ -82,10 +82,19 @@ export class PreviewContribution implements CommandContribution, MenuContributio
             return Disposable.NULL;
         }
         return previewWidget.onDidScroll(line => {
-            editor.revealPosition({
-                line,
-                character: 0
-            });
+            editor.revealRange({
+                start: {
+                    line,
+                    character: 0
+                },
+                end: {
+                    line,
+                    character: 0
+                }
+            },
+                {
+                    at: 'top'
+                });
         });
     }
 
