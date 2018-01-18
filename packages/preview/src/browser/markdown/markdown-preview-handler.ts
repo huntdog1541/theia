@@ -86,7 +86,7 @@ export class MarkdownPreviewHandler implements PreviewHandler {
             });
             const indexingTokenRenderer: markdownit.TokenRender = (tokens, index, options, env, self) => {
                 const token = tokens[index];
-                if (token.map && token.level === 0) {
+                if (token.map && (token.level === 0 || token.level === 1 || token.level === 2)) {
                     const line = token.map[0];
                     token.attrJoin('class', 'line');
                     token.attrSet('data-line', line.toString());
