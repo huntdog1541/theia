@@ -8,7 +8,6 @@
 import { inject, injectable } from "inversify";
 import { ResourceProvider } from "@theia/core";
 import { PreviewHandler } from '../preview-handler';
-import { PREVIEW_WIDGET_CLASS } from '../preview-widget';
 import URI from "@theia/core/lib/common/uri";
 
 import * as hljs from 'highlight.js';
@@ -47,25 +46,32 @@ export class MarkdownPreviewHandler implements PreviewHandler {
         return matchedElement;
     }
 
-    getSourceLineForElement(selectedElement: HTMLElement): number | undefined {
-        let current: Element | null = selectedElement;
-        while (current) {
-            const parent = current.parentElement;
-            if (parent && parent.classList.contains(PREVIEW_WIDGET_CLASS)) {
+    getSourceLineForOffset(content: HTMLElement, offset: number): number | undefined {
+        const filter: NodeFilter = {
+            acceptNode: (node: Node) => {
+                if (node instanceof HTMLElement) {
+                    if (node.classList.contains('line')) {
+                        return NodeFilter.FILTER_ACCEPT;
+                    }
+                    return NodeFilter.FILTER_SKIP;
+                }
+                return NodeFilter.FILTER_REJECT;
+            }
+        };
+        const treeWalker = document.createTreeWalker(content, NodeFilter.SHOW_ELEMENT, filter, false);
+        let lastElement: HTMLElement | undefined = undefined;
+        while (treeWalker.nextNode()) {
+            const current = treeWalker.currentNode as HTMLElement;
+            const offsetTop = current.offsetTop;
+            if (offsetTop > offset) {
                 break;
             }
-            current = current.parentElement;
+            lastElement = current;
         }
-        while (current) {
-            if (current.classList.contains('line')) {
-                break;
-            }
-            current = current.previousElementSibling;
-        }
-        if (!current) {
+        if (!lastElement) {
             return undefined;
         }
-        const line = Number.parseInt(current.getAttribute('data-line') || '0');
+        const line = Number.parseInt(lastElement.getAttribute('data-line') || '0');
         return line;
     }
 
@@ -95,6 +101,7 @@ export class MarkdownPreviewHandler implements PreviewHandler {
             };
             engine.renderer.rules.heading_open = indexingTokenRenderer;
             engine.renderer.rules.paragraph_open = indexingTokenRenderer;
+            engine.renderer.rules.list_item_open = indexingTokenRenderer;
         }
         return this.engine;
     }

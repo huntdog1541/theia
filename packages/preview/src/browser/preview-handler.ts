@@ -17,7 +17,7 @@ export interface PreviewHandler {
     canHandle(uri: URI): number;
     renderHTML(content: string): MaybePromise<string | undefined>;
     findElementForSourceLine(sourceLine: number, renderedNode: HTMLElement): HTMLElement | undefined;
-    getSourceLineForElement(selectedElement: HTMLElement): number | undefined;
+    getSourceLineForOffset(content: HTMLElement, offset: number): number | undefined;
 }
 
 @injectable()

@@ -203,23 +203,12 @@ export class PreviewWidget extends BaseWidget implements StatefulWidget {
         if (!this.previewHandler) {
             return;
         }
-        const child = this.getChildAtOffsetTop(scrollTop);
-        if (!child) {
-            return;
-        }
-        const line = this.previewHandler.getSourceLineForElement(child);
+        const offset = scrollTop;
+        const line = this.previewHandler.getSourceLineForOffset(this.node, offset);
         if (!line) {
             return;
         }
         this.fireDidScrollToSourceLine(line);
-    }
-
-    protected getChildAtOffsetTop(y: number): HTMLElement | undefined {
-        let child = this.node.firstElementChild as HTMLElement | null;
-        while (child && y > child.offsetTop) {
-            child = child.nextElementSibling as HTMLElement | null;
-        }
-        return child ? child : undefined;
     }
 
 }
