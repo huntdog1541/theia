@@ -34,7 +34,6 @@ import {
     PreviewHandler,
     PreviewHandlerProvider
 } from './preview-handler';
-import * as scrollIntoView from 'scroll-into-view';
 
 export const PREVIEW_WIDGET_CLASS = 'theia-preview-widget';
 
@@ -71,20 +70,14 @@ export class PreviewWidget extends BaseWidget implements StatefulWidget {
         this.update();
     }
 
-    protected scrollSyncTimer: number | undefined = undefined;
     protected preventScrollNotification: boolean = false;
     protected startScrollSync(): void {
         this.node.addEventListener('scroll', event => {
             if (this.preventScrollNotification) {
                 return;
             }
-            if (this.scrollSyncTimer) {
-                window.clearTimeout(this.scrollSyncTimer);
-            }
-            this.scrollSyncTimer = window.setTimeout(() => {
-                const scrollTop = this.node.scrollTop;
-                this.didScroll(scrollTop);
-            }, 50);
+            const scrollTop = this.node.scrollTop;
+            this.didScroll(scrollTop);
         });
     }
 
@@ -100,7 +93,9 @@ export class PreviewWidget extends BaseWidget implements StatefulWidget {
             const document = this.workspace.textDocuments.find(d => d.uri === uri.toString());
             if (document) {
                 const contents = document.getText();
-                this.renderHTML(contents).then(html => this.node.innerHTML = html);
+                this.renderHTML(contents).then(html => {
+                    this.node.innerHTML = html;
+                });
             } else {
                 this.resource.readContents().then(async contents => {
                     this.node.innerHTML = await this.renderHTML(contents);
@@ -181,13 +176,10 @@ export class PreviewWidget extends BaseWidget implements StatefulWidget {
         const elementToReveal = this.previewHandler.findElementForSourceLine(sourceLine, this.node);
         if (elementToReveal) {
             this.preventScrollNotification = true;
-            scrollIntoView(elementToReveal, {
-                time: 250
-            }, type => {
-                if (type === 'complete') {
-                    this.preventScrollNotification = false;
-                }
-            });
+            elementToReveal.scrollIntoView({ behavior: 'instant' });
+            window.setTimeout(() => {
+                this.preventScrollNotification = false;
+            }, 500);
         }
     }
 
