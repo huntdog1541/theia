@@ -5,8 +5,7 @@
  * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
  */
 
-import { inject, injectable } from "inversify";
-import { ResourceProvider } from "@theia/core";
+import { injectable } from "inversify";
 import { PreviewHandler } from '../preview-handler';
 import URI from "@theia/core/lib/common/uri";
 
@@ -17,9 +16,6 @@ import '../../../src/browser/markdown/style/index.css';
 
 @injectable()
 export class MarkdownPreviewHandler implements PreviewHandler {
-
-    @inject(ResourceProvider)
-    protected readonly resourceProvider: ResourceProvider;
 
     readonly iconClass: string = 'markdown-icon file-icon';
     readonly contentClass: string = 'markdown-preview';
