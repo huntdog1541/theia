@@ -96,8 +96,9 @@ export class PreviewWidget extends BaseWidget implements StatefulWidget {
                 }
                 node = node.parentElement;
             }
-            const offsetTop = target.offsetTop;
-            this.didDoubleClick(offsetTop);
+            const offsetParent = target.offsetParent as HTMLElement;
+            const offset = offsetParent.classList.contains(PREVIEW_WIDGET_CLASS) ? target.offsetTop : offsetParent.offsetTop;
+            this.didDoubleClick(offset);
         });
     }
 

@@ -17,7 +17,8 @@ import {
     FrontendApplicationContribution
 } from '@theia/core/lib/browser';
 import { PreviewContribution } from './preview-contribution';
-import { PreviewWidget, PREVIEW_WIDGET_FACTORY_ID } from './preview-widget';
+import { PreviewWidget } from './preview-widget';
+import { PreviewWidgetFactory } from './preview-widget-factory';
 import { PreviewHandler, PreviewHandlerProvider } from './preview-handler';
 import { MarkdownPreviewHandler } from './markdown';
 
@@ -29,20 +30,12 @@ export default new ContainerModule(bind => {
     bind(MarkdownPreviewHandler).toSelf().inSingletonScope();
     bind(PreviewHandler).toDynamicValue(ctx => ctx.container.get(MarkdownPreviewHandler));
 
+    bind(PreviewWidget).toSelf();
+    bind(PreviewWidgetFactory).toDynamicValue(ctx => new PreviewWidgetFactory(ctx.container)).inSingletonScope();
+    bind(WidgetFactory).toDynamicValue(ctx => ctx.container.get(PreviewWidgetFactory));
+
     bind(PreviewContribution).toSelf().inSingletonScope();
     [CommandContribution, MenuContribution, OpenHandler, FrontendApplicationContribution].forEach(serviceIdentifier =>
         bind(serviceIdentifier).toDynamicValue(c => c.container.get(PreviewContribution)).inSingletonScope()
     );
-
-    bind(PreviewWidget).toSelf();
-    bind(WidgetFactory).toDynamicValue(ctx => <WidgetFactory>{
-        id: PREVIEW_WIDGET_FACTORY_ID,
-        createWidget: async () => {
-            const afterCreate = ctx.container.get(PreviewContribution);
-            const widget = ctx.container.get(PreviewWidget);
-            afterCreate.preparePreviewWidget(widget);
-            return widget;
-        }
-    });
-
 });

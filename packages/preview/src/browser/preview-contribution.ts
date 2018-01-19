@@ -14,6 +14,7 @@ import { WidgetManager } from '@theia/core/lib/browser/widget-manager';
 import URI from '@theia/core/lib/common/uri';
 import { Position } from 'vscode-languageserver-types';
 import { PreviewWidget, PREVIEW_WIDGET_FACTORY_ID } from './preview-widget';
+import { PreviewWidgetFactory } from './preview-widget-factory';
 import { PreviewHandlerProvider } from './preview-handler';
 
 export namespace PreviewCommands {
@@ -44,7 +45,14 @@ export class PreviewContribution implements CommandContribution, MenuContributio
     @inject(PreviewHandlerProvider)
     protected readonly previewHandlerProvider: PreviewHandlerProvider;
 
+    @inject(PreviewWidgetFactory)
+    protected readonly previewWidgetFactory: PreviewWidgetFactory;
+
     onStart() {
+        this.previewWidgetFactory.onWidgetCreated(newPreviewWidget => {
+            this.previewDisposables.dispose();
+            this.previewDisposables.push(this.registerOpenOnDoubleClick(newPreviewWidget));
+        });
         this.syncWithCurrentEditor();
     }
 
@@ -184,11 +192,6 @@ export class PreviewContribution implements CommandContribution, MenuContributio
             this.app.shell.addWidget(previewWidget, options);
         }
         return previewWidget;
-    }
-
-    preparePreviewWidget(widget: PreviewWidget): void {
-        this.previewDisposables.dispose();
-        this.previewDisposables.push(this.registerOpenOnDoubleClick(widget));
     }
 
 }
