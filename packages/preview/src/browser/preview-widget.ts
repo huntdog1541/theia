@@ -23,17 +23,20 @@ import URI from '@theia/core/lib/common/uri';
 import {
     ResourceProvider,
     Event,
-    Emitter
+    Emitter,
 } from '@theia/core/lib/common';
 import {
     Workspace,
     TextDocument,
-    DidChangeTextDocumentParams
+    DidChangeTextDocumentParams,
+    Location,
+    Range,
 } from "@theia/languages/lib/common";
 import {
     PreviewHandler,
     PreviewHandlerProvider
 } from './preview-handler';
+import { throttle } from 'throttle-debounce';
 
 export const PREVIEW_WIDGET_CLASS = 'theia-preview-widget';
 
@@ -48,6 +51,7 @@ export class PreviewWidget extends BaseWidget implements StatefulWidget {
     protected previewHandler: PreviewHandler | undefined;
     protected readonly previewDisposables = new DisposableCollection();
     protected readonly onDidScrollEmitter = new Emitter<number>();
+    protected readonly onDidDoubleClickEmitter = new Emitter<Location>();
 
     @inject(ResourceProvider)
     protected readonly resourceProvider: ResourceProvider;
@@ -67,17 +71,33 @@ export class PreviewWidget extends BaseWidget implements StatefulWidget {
         this.addClass(PREVIEW_WIDGET_CLASS);
         this.node.tabIndex = 0;
         this.startScrollSync();
+        this.startDoubleClickListener();
         this.update();
     }
 
     protected preventScrollNotification: boolean = false;
     protected startScrollSync(): void {
-        this.node.addEventListener('scroll', event => {
+        this.node.addEventListener('scroll', throttle(50, (event: UIEvent) => {
             if (this.preventScrollNotification) {
                 return;
             }
             const scrollTop = this.node.scrollTop;
             this.didScroll(scrollTop);
+        }));
+    }
+
+    protected startDoubleClickListener(): void {
+        this.node.addEventListener('dblclick', (event: MouseEvent) => {
+            const target = event.target as HTMLElement;
+            let node: HTMLElement | null = target;
+            while (node && node instanceof HTMLElement) {
+                if (node.tagName === 'A') {
+                    return;
+                }
+                node = node.parentElement;
+            }
+            const offsetTop = target.offsetTop;
+            this.didDoubleClick(offsetTop);
         });
     }
 
@@ -170,6 +190,9 @@ export class PreviewWidget extends BaseWidget implements StatefulWidget {
     }
 
     revealForSourceLine(sourceLine: number): void {
+        this.internalRevealForSourceLine(sourceLine);
+    }
+    protected readonly internalRevealForSourceLine: (sourceLine: number) => void = throttle(50, (sourceLine: number) => {
         if (!this.previewHandler) {
             return;
         }
@@ -179,9 +202,9 @@ export class PreviewWidget extends BaseWidget implements StatefulWidget {
             elementToReveal.scrollIntoView({ behavior: 'instant' });
             window.setTimeout(() => {
                 this.preventScrollNotification = false;
-            }, 500);
+            }, 50);
         }
-    }
+    });
 
     get onDidScroll(): Event<number> {
         return this.onDidScrollEmitter.event;
@@ -197,10 +220,33 @@ export class PreviewWidget extends BaseWidget implements StatefulWidget {
         }
         const offset = scrollTop;
         const line = this.previewHandler.getSourceLineForOffset(this.node, offset);
-        if (!line) {
+        if (line) {
+            this.fireDidScrollToSourceLine(line);
+        }
+    }
+
+    get onDidDoubleClick(): Event<Location> {
+        return this.onDidDoubleClickEmitter.event;
+    }
+
+    protected fireDidDoubleClickToSourceLine(line: number): void {
+        if (!this.resource) {
             return;
         }
-        this.fireDidScrollToSourceLine(line);
+        this.onDidDoubleClickEmitter.fire({
+            uri: this.resource.uri.toString(),
+            range: Range.create({ line, character: 0 }, { line, character: 0 })
+        });
+    }
+
+    protected didDoubleClick(offsetTop: number): void {
+        if (!this.previewHandler) {
+            return;
+        }
+        const line = this.previewHandler.getSourceLineForOffset(this.node, offsetTop);
+        if (line) {
+            this.fireDidDoubleClickToSourceLine(line);
+        }
     }
 
 }

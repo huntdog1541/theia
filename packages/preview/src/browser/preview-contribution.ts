@@ -29,7 +29,8 @@ export class PreviewContribution implements CommandContribution, MenuContributio
     readonly id = 'preview';
     readonly label = 'Preview';
 
-    protected readonly disposables = new DisposableCollection();
+    protected readonly editorDisposables = new DisposableCollection();
+    protected readonly previewDisposables = new DisposableCollection();
 
     @inject(FrontendApplication)
     protected readonly app: FrontendApplication;
@@ -52,18 +53,22 @@ export class PreviewContribution implements CommandContribution, MenuContributio
             if (!editorWidget) {
                 return;
             }
-            this.disposables.dispose();
+            this.editorDisposables.dispose();
             const editor = editorWidget.editor;
-            this.disposables.push(editor.onCursorPositionChanged(position =>
+            this.editorDisposables.push(editor.onCursorPositionChanged(position =>
                 this.synchronizeSelectionToPreview(editor, position))
             );
-            this.disposables.push(this.synchronizeSelectionToEditor(editor));
+            const previewWidget = this.getPreviewWidget();
+            if (previewWidget) {
+                this.editorDisposables.push(this.synchronizeSelectionToEditor(previewWidget, editor));
+            }
         });
     }
 
     protected getPreviewWidget(): PreviewWidget | undefined {
         // note: this also ensures, we get resotored widgets
-        return this.widgetManager.getWidgets(PREVIEW_WIDGET_FACTORY_ID).slice(-1)[0] as PreviewWidget;
+        const previewWidget = this.widgetManager.getWidgets(PREVIEW_WIDGET_FACTORY_ID).slice(-1)[0] as PreviewWidget;
+        return previewWidget;
     }
 
     protected synchronizeSelectionToPreview(editor: TextEditor, position: Position): void {
@@ -75,10 +80,9 @@ export class PreviewContribution implements CommandContribution, MenuContributio
         previewWidget.revealForSourceLine(position.line);
     }
 
-    protected synchronizeSelectionToEditor(editor: TextEditor): Disposable {
+    protected synchronizeSelectionToEditor(previewWidget: PreviewWidget, editor: TextEditor): Disposable {
         const uri = editor.uri.toString();
-        const previewWidget = this.getPreviewWidget();
-        if (!previewWidget || !previewWidget.uri || previewWidget.uri.toString() !== uri) {
+        if (!previewWidget.uri || previewWidget.uri.toString() !== uri) {
             return Disposable.NULL;
         }
         return previewWidget.onDidScroll(sourceLine => {
@@ -95,6 +99,22 @@ export class PreviewContribution implements CommandContribution, MenuContributio
             },
                 {
                     at: 'top'
+                });
+        });
+    }
+
+    protected registerOpenOnDoubleClick(previewWidget: PreviewWidget): Disposable {
+        return previewWidget.onDidDoubleClick(location => {
+            this.editorManager.open(new URI(location.uri))
+                .then(widget => {
+                    if (widget) {
+                        widget.editor.revealPosition(location.range.start);
+                        return widget.editor;
+                    }
+                }).then(editor => {
+                    if (editor) {
+                        editor.selection = location.range;
+                    }
                 });
         });
     }
@@ -134,29 +154,27 @@ export class PreviewContribution implements CommandContribution, MenuContributio
         return false;
     }
 
-    protected async openForEditor(): Promise<void> {
-        const uri = this.getCurrentEditorUri();
-        if (uri) {
-            this.open(uri, { area: 'main', mode: 'split-right' }).then(previewWidget => {
-                if (previewWidget) {
-                    window.setTimeout(() => {
-                        const editorWidget = this.editorManager.currentEditor;
-                        if (editorWidget) {
-                            const editor = editorWidget.editor;
-                            this.synchronizeSelectionToPreview(editor, editor.cursor);
-                        }
-                    }, 200);
-                }
-            });
-        }
-    }
-
     protected getCurrentEditorUri(): URI | undefined {
         const activeEditor = this.editorManager.currentEditor;
         if (activeEditor) {
             return activeEditor.editor.uri;
         }
         return undefined;
+    }
+
+    protected async openForEditor(): Promise<void> {
+        const editorWidget = this.editorManager.currentEditor;
+        if (!editorWidget) {
+            return;
+        }
+        const editor = editorWidget.editor;
+        const uri = editor.uri;
+        this.open(uri, { area: 'main', mode: 'split-right' }).then(previewWidget => {
+            window.setTimeout(() => {
+                this.synchronizeSelectionToPreview(editor, editor.cursor);
+                this.synchronizeSelectionToEditor(previewWidget, editor);
+            }, 100);
+        });
     }
 
     protected async getOrCreateWidget(uri: URI, options: ApplicationShell.WidgetOptions): Promise<PreviewWidget> {
@@ -166,6 +184,11 @@ export class PreviewContribution implements CommandContribution, MenuContributio
             this.app.shell.addWidget(previewWidget, options);
         }
         return previewWidget;
+    }
+
+    preparePreviewWidget(widget: PreviewWidget): void {
+        this.previewDisposables.dispose();
+        this.previewDisposables.push(this.registerOpenOnDoubleClick(widget));
     }
 
 }
