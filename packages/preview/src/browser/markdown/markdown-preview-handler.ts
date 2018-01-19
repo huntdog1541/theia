@@ -12,8 +12,6 @@ import URI from "@theia/core/lib/common/uri";
 import * as hljs from 'highlight.js';
 import * as markdownit from 'markdown-it';
 
-import '../../../src/browser/markdown/style/index.css';
-
 @injectable()
 export class MarkdownPreviewHandler implements PreviewHandler {
 
