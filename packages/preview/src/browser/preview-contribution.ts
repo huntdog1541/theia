@@ -65,6 +65,9 @@ export class PreviewContribution implements CommandContribution, MenuContributio
         if (!previewWidget || !editorWidget) {
             return;
         }
+        if (this.syncronizedUris.has(uri)) {
+            return;
+        }
         const syncDisposables = new DisposableCollection();
         const editor = editorWidget.editor;
         syncDisposables.push(editor.onCursorPositionChanged(position =>
