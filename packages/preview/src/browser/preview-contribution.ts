@@ -131,9 +131,11 @@ export class PreviewContribution implements CommandContribution, MenuContributio
         return (this.previewHandlerProvider.canHandle(uri)) ? 50 : 0;
     }
 
-    async open(uri: URI, options: ApplicationShell.WidgetOptions = { area: 'main', mode: 'tab-after' }): Promise<PreviewWidget> {
+    async open(uri: URI, options: ApplicationShell.WidgetOptions = { area: 'main', mode: 'tab-after' }, activate: boolean = true): Promise<PreviewWidget> {
         const previewWidget = await this.getOrCreateWidget(uri, options);
-        this.app.shell.activateWidget(previewWidget.id);
+        if (activate) {
+            this.app.shell.activateWidget(previewWidget.id);
+        }
         await previewWidget.start(uri);
         return previewWidget;
     }
@@ -177,7 +179,7 @@ export class PreviewContribution implements CommandContribution, MenuContributio
         }
         const editor = editorWidget.editor;
         const uri = editor.uri;
-        this.open(uri, { area: 'main', mode: 'split-right' }).then(previewWidget => {
+        this.open(uri, { area: 'main', mode: 'split-right' }, false).then(previewWidget => {
             window.setTimeout(() => {
                 this.synchronizeSelectionToPreview(editor, editor.cursor);
                 this.synchronizeSelectionToEditor(previewWidget, editor);

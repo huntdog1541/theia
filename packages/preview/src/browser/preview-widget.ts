@@ -104,6 +104,7 @@ export class PreviewWidget extends BaseWidget implements StatefulWidget {
 
     onActivateRequest(msg: Message): void {
         super.onActivateRequest(msg);
+        this.node.focus();
         this.update();
     }
 
