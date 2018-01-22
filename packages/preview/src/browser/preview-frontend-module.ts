@@ -18,7 +18,7 @@ import {
 } from '@theia/core/lib/browser';
 import { PreviewContribution } from './preview-contribution';
 import { PreviewWidget } from './preview-widget';
-import { PreviewWidgetFactory } from './preview-widget-factory';
+import { PreviewWidgetManager } from './preview-widget-manager';
 import { PreviewHandler, PreviewHandlerProvider } from './preview-handler';
 import { MarkdownPreviewHandler } from './markdown';
 
@@ -32,8 +32,8 @@ export default new ContainerModule(bind => {
     bind(PreviewHandler).toDynamicValue(ctx => ctx.container.get(MarkdownPreviewHandler));
 
     bind(PreviewWidget).toSelf();
-    bind(PreviewWidgetFactory).toDynamicValue(ctx => new PreviewWidgetFactory(ctx.container)).inSingletonScope();
-    bind(WidgetFactory).toDynamicValue(ctx => ctx.container.get(PreviewWidgetFactory));
+    bind(PreviewWidgetManager).toDynamicValue(ctx => new PreviewWidgetManager(ctx.container)).inSingletonScope();
+    bind(WidgetFactory).toDynamicValue(ctx => ctx.container.get(PreviewWidgetManager));
 
     bind(PreviewContribution).toSelf().inSingletonScope();
     [CommandContribution, MenuContribution, OpenHandler, FrontendApplicationContribution].forEach(serviceIdentifier =>

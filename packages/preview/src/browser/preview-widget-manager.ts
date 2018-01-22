@@ -9,6 +9,7 @@ import {
     interfaces,
     injectable
 } from 'inversify';
+import { DisposableCollection } from '@theia/core';
 import {
     WidgetFactory,
 } from '@theia/core/lib/browser';
@@ -22,18 +23,29 @@ import {
 } from './preview-widget';
 
 @injectable()
-export class PreviewWidgetFactory implements WidgetFactory {
+export class PreviewWidgetManager implements WidgetFactory {
 
     readonly id: string = PREVIEW_WIDGET_FACTORY_ID;
 
     protected readonly onWidgetCreatedEmitter = new Emitter<PreviewWidget>();
 
+    protected readonly disposables = new DisposableCollection();
+    private widgets = new Map<string, PreviewWidget>();
+
     constructor(
         protected readonly container: interfaces.Container
     ) { }
 
-    async createWidget(options?: any): Promise<PreviewWidget> {
+    async createWidget(uri: string): Promise<PreviewWidget> {
+        const previewWidget = this.widgets.get(uri);
+        if (previewWidget) {
+            return previewWidget;
+        }
         const newWidget = this.container.get(PreviewWidget);
+        this.widgets.set(uri.toString(), newWidget);
+        newWidget.disposed.connect(() => {
+            this.widgets.delete(uri.toString());
+        });
         this.fireWidgetCreated(newWidget);
         return newWidget;
     }

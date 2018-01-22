@@ -14,7 +14,7 @@ import { WidgetManager } from '@theia/core/lib/browser/widget-manager';
 import URI from '@theia/core/lib/common/uri';
 import { Position } from 'vscode-languageserver-types';
 import { PreviewWidget, PREVIEW_WIDGET_FACTORY_ID } from './preview-widget';
-import { PreviewWidgetFactory } from './preview-widget-factory';
+import { PreviewWidgetManager } from './preview-widget-manager';
 import { PreviewHandlerProvider } from './preview-handler';
 
 export namespace PreviewCommands {
@@ -45,11 +45,11 @@ export class PreviewContribution implements CommandContribution, MenuContributio
     @inject(PreviewHandlerProvider)
     protected readonly previewHandlerProvider: PreviewHandlerProvider;
 
-    @inject(PreviewWidgetFactory)
-    protected readonly previewWidgetFactory: PreviewWidgetFactory;
+    @inject(PreviewWidgetManager)
+    protected readonly previewWidgetManager: PreviewWidgetManager;
 
     onStart() {
-        this.previewWidgetFactory.onWidgetCreated(newPreviewWidget => {
+        this.previewWidgetManager.onWidgetCreated(newPreviewWidget => {
             this.previewDisposables.dispose();
             this.previewDisposables.push(this.registerOpenOnDoubleClick(newPreviewWidget));
         });
@@ -132,7 +132,10 @@ export class PreviewContribution implements CommandContribution, MenuContributio
     }
 
     async open(uri: URI, options: ApplicationShell.WidgetOptions = { area: 'main', mode: 'tab-after' }, activate: boolean = true): Promise<PreviewWidget> {
-        const previewWidget = await this.getOrCreateWidget(uri, options);
+        const previewWidget = <PreviewWidget>await this.widgetManager.getOrCreateWidget(PREVIEW_WIDGET_FACTORY_ID, uri.toString());
+        if (!previewWidget.isAttached) {
+            this.app.shell.addWidget(previewWidget, options);
+        }
         if (activate) {
             this.app.shell.activateWidget(previewWidget.id);
         }
@@ -185,15 +188,6 @@ export class PreviewContribution implements CommandContribution, MenuContributio
                 this.synchronizeSelectionToEditor(previewWidget, editor);
             }, 100);
         });
-    }
-
-    protected async getOrCreateWidget(uri: URI, options: ApplicationShell.WidgetOptions): Promise<PreviewWidget> {
-        let previewWidget = this.getPreviewWidget();
-        if (!previewWidget) {
-            previewWidget = <PreviewWidget>await this.widgetManager.getOrCreateWidget(PREVIEW_WIDGET_FACTORY_ID);
-            this.app.shell.addWidget(previewWidget, options);
-        }
-        return previewWidget;
     }
 
 }
