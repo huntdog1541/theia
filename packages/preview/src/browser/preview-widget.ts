@@ -228,7 +228,7 @@ export class PreviewWidget extends BaseWidget implements StatefulWidget {
         if (!this.previewHandler || !this.previewHandler.findElementForSourceLine) {
             return;
         }
-        const elementToReveal = this.previewHandler.findElementForSourceLine(sourceLine, this.node);
+        const elementToReveal = this.previewHandler.findElementForSourceLine(this.node, sourceLine);
         if (elementToReveal) {
             this.preventScrollNotification = true;
             elementToReveal.scrollIntoView({ behavior: 'instant' });
@@ -278,6 +278,24 @@ export class PreviewWidget extends BaseWidget implements StatefulWidget {
         const line = this.previewHandler.getSourceLineForOffset(this.node, offsetTop);
         if (line) {
             this.fireDidDoubleClickToSourceLine(line);
+        }
+    }
+
+    revealAnchor(link: string): void {
+        if (!link.startsWith('#')) {
+            return;
+        }
+        const anchor = link.substring(1);
+        if (!this.previewHandler || !this.previewHandler.findElementForAnchor) {
+            return;
+        }
+        const elementToReveal = this.previewHandler.findElementForAnchor(this.node, anchor);
+        if (elementToReveal) {
+            this.preventScrollNotification = true;
+            elementToReveal.scrollIntoView({ behavior: 'instant' });
+            window.setTimeout(() => {
+                this.preventScrollNotification = false;
+            }, 50);
         }
     }
 

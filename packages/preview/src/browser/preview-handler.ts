@@ -16,7 +16,8 @@ export interface PreviewHandler {
     readonly contentClass: string;
     canHandle(uri: URI): number;
     renderHTML(content: string): MaybePromise<string | undefined>;
-    findElementForSourceLine?(sourceLine: number, renderedNode: HTMLElement): HTMLElement | undefined;
+    findElementForAnchor?(content: HTMLElement, anchor: string): HTMLElement | undefined;
+    findElementForSourceLine?(content: HTMLElement, sourceLine: number): HTMLElement | undefined;
     getSourceLineForOffset?(content: HTMLElement, offset: number): number | undefined;
 }
 

@@ -29,7 +29,7 @@ describe("markdown-preview-handler", () => {
 
     it("finds element for source line", () => {
         document.body.innerHTML = exampleHtml1;
-        const element = previewHandler.findElementForSourceLine(4, document.body);
+        const element = previewHandler.findElementForSourceLine(document.body, 4);
         expect(element).not.to.be.equal(undefined);
         expect(element!.tagName).to.be.equal('H2');
         expect(element!.textContent).to.be.equal('License');
@@ -37,7 +37,7 @@ describe("markdown-preview-handler", () => {
 
     it("finds previous element for empty source line", () => {
         document.body.innerHTML = exampleHtml1;
-        const element = previewHandler.findElementForSourceLine(3, document.body);
+        const element = previewHandler.findElementForSourceLine(document.body, 3);
         expect(element).not.to.be.equal(undefined);
         expect(element!.tagName).to.be.equal('P');
         expect(element!.textContent).that.startWith('Shows a preview of supported resources.');

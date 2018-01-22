@@ -140,6 +140,9 @@ export class PreviewContribution implements CommandContribution, MenuContributio
             return;
         }
         const disposable = previewWidget.onDidClickLink(link => {
+            if (link.startsWith('#')) {
+                previewWidget.revealAnchor(link);
+            }
             console.log('should navigate to: ' + link);
         });
         previewWidget.disposed.connect(() => disposable.dispose());

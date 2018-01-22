@@ -27,8 +27,28 @@ export class MarkdownPreviewHandler implements PreviewHandler {
         return this.getEngine().render(content);
     }
 
-    findElementForSourceLine(sourceLine: number, renderedNode: HTMLElement): HTMLElement | undefined {
-        const markedElements = renderedNode.getElementsByClassName('line');
+    findElementForAnchor(content: HTMLElement, anchor: string): HTMLElement | undefined {
+        const filter: NodeFilter = {
+            acceptNode: (node: Node) => {
+                if (node instanceof HTMLHeadingElement) {
+                    if (node.tagName.toLowerCase().startsWith('h') && node.id === anchor) {
+                        return NodeFilter.FILTER_ACCEPT;
+                    }
+                    return NodeFilter.FILTER_SKIP;
+                }
+                return NodeFilter.FILTER_SKIP;
+            }
+        };
+        const treeWalker = document.createTreeWalker(content, NodeFilter.SHOW_ELEMENT, filter, false);
+        while (treeWalker.nextNode()) {
+            const element = treeWalker.currentNode as HTMLElement;
+            return element;
+        }
+        return undefined;
+    }
+
+    findElementForSourceLine(content: HTMLElement, sourceLine: number): HTMLElement | undefined {
+        const markedElements = content.getElementsByClassName('line');
         let matchedElement: HTMLElement | undefined;
         for (let i = 0; i < markedElements.length; i++) {
             const element = markedElements[i];
