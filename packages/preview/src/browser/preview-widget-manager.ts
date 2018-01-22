@@ -27,7 +27,7 @@ export class PreviewWidgetManager implements WidgetFactory {
 
     readonly id: string = PREVIEW_WIDGET_FACTORY_ID;
 
-    protected readonly onWidgetCreatedEmitter = new Emitter<PreviewWidget>();
+    protected readonly onWidgetCreatedEmitter = new Emitter<string>();
 
     protected readonly disposables = new DisposableCollection();
     private widgets = new Map<string, PreviewWidget>();
@@ -42,20 +42,24 @@ export class PreviewWidgetManager implements WidgetFactory {
             return previewWidget;
         }
         const newWidget = this.container.get(PreviewWidget);
-        this.widgets.set(uri.toString(), newWidget);
+        this.widgets.set(uri, newWidget);
         newWidget.disposed.connect(() => {
-            this.widgets.delete(uri.toString());
+            this.widgets.delete(uri);
         });
-        this.fireWidgetCreated(newWidget);
+        this.fireWidgetCreated(uri);
         return newWidget;
     }
 
-    get onWidgetCreated(): Event<PreviewWidget> {
+    get(uri: string): PreviewWidget | undefined {
+        return this.widgets.get(uri);
+    }
+
+    get onWidgetCreated(): Event<string> {
         return this.onWidgetCreatedEmitter.event;
     }
 
-    protected fireWidgetCreated(newWidget: PreviewWidget): void {
-        this.onWidgetCreatedEmitter.fire(newWidget);
+    protected fireWidgetCreated(uri: string): void {
+        this.onWidgetCreatedEmitter.fire(uri);
     }
 
 }
