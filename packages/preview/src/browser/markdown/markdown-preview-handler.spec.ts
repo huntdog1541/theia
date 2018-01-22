@@ -44,6 +44,27 @@ describe("markdown-preview-handler", () => {
         expect(element!.textContent).that.startWith('Shows a preview of supported resources.');
     });
 
+    it("finds source line for offset in html", () => {
+        mockOffsetProperties();
+        document.body.innerHTML = exampleHtml1;
+        for (const expectedLine of [0, 1, 4, 5]) {
+            const line = previewHandler.getSourceLineForOffset(document.body, offsetForLine(expectedLine));
+            expect(line).to.be.equal(expectedLine);
+        }
+    });
+
+    it("interpolates source lines for offset in html", () => {
+        mockOffsetProperties();
+        document.body.innerHTML = exampleHtml1;
+        const expectedLines = [1, 2, 3, 4];
+        const offsets = expectedLines.map(l => offsetForLine(l));
+        for (let i = 0; i < expectedLines.length; i++) {
+            const expectedLine = expectedLines[i];
+            const offset = offsets[i];
+            const line = previewHandler.getSourceLineForOffset(document.body, offset);
+            expect(line).to.be.equal(expectedLine);
+        }
+    });
 });
 
 const exampleMarkdown1 = //
@@ -62,3 +83,31 @@ See <a href="https://github.com/theia-ide/theia">here</a>.</p>
 <h2 class="line" data-line="4">License</h2>
 <p class="line" data-line="5"><a href="https://github.com/theia-ide/theia/blob/master/LICENSE">Apache-2.0</a></p>
 `;
+
+/**
+ * `offsetTop` of elements to be `sourceLine` number times `20`.
+ */
+function mockOffsetProperties() {
+    Object.defineProperties(HTMLElement.prototype, {
+        offsetLeft: {
+            get: () => 0
+        },
+        offsetTop: {
+            get: function () {
+                const element = this as HTMLElement;
+                const line = Number.parseInt(element.getAttribute('data-line') || '0');
+                return offsetForLine(line);
+            }
+        },
+        offsetHeight: {
+            get: () => 0
+        },
+        offsetWidth: {
+            get: () => 0
+        }
+    });
+}
+
+function offsetForLine(line: number) {
+    return line * 20;
+}
