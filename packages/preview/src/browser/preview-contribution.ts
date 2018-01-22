@@ -139,7 +139,7 @@ export class PreviewContribution implements CommandContribution, MenuContributio
         if (!previewWidget) {
             return;
         }
-        const disposable = previewWidget.onDidLinkClick(link => {
+        const disposable = previewWidget.onDidClickLink(link => {
             console.log('should navigate to: ' + link);
         });
         previewWidget.disposed.connect(() => disposable.dispose());
