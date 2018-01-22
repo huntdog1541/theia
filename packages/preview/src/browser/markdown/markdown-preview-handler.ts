@@ -11,6 +11,7 @@ import URI from "@theia/core/lib/common/uri";
 
 import * as hljs from 'highlight.js';
 import * as markdownit from 'markdown-it';
+import * as anchor from 'markdown-it-anchor';
 
 @injectable()
 export class MarkdownPreviewHandler implements PreviewHandler {
@@ -109,10 +110,10 @@ export class MarkdownPreviewHandler implements PreviewHandler {
                 highlight: (str, lang) => {
                     if (lang && hljs.getLanguage(lang)) {
                         try {
-                            return '<pre class="hljs"><code>' + hljs.highlight(lang, str, true).value + '</code></pre>';
+                            return '<pre class="hljs"><code><div>' + hljs.highlight(lang, str, true).value + '</div></code></pre>';
                         } catch { }
                     }
-                    return '<pre class="hljs"><code>' + engine.utils.escapeHtml(str) + '</code></pre>';
+                    return '<pre class="hljs"><code><div>' + engine.utils.escapeHtml(str) + '</div></code></pre>';
                 }
             });
             const indexingTokenRenderer: markdownit.TokenRender = (tokens, index, options, env, self) => {
@@ -124,9 +125,13 @@ export class MarkdownPreviewHandler implements PreviewHandler {
                 }
                 return self.renderToken(tokens, index, options);
             };
-            engine.renderer.rules.heading_open = indexingTokenRenderer;
-            engine.renderer.rules.paragraph_open = indexingTokenRenderer;
-            engine.renderer.rules.list_item_open = indexingTokenRenderer;
+            const renderers = ['heading_open', 'paragraph_open', 'list_item_open', 'blockquote_open', 'code_block', 'image'];
+            for (const renderer of renderers) {
+                engine.renderer.rules[renderer] = indexingTokenRenderer;
+            }
+            anchor(engine, {
+
+            });
         }
         return this.engine;
     }
