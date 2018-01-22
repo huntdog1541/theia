@@ -5,12 +5,11 @@
  * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
  */
 
-import { GitDiffService } from './git-diff-service';
 import { CommandRegistry, Command, MenuModelRegistry, SelectionService } from "@theia/core/lib/common";
 import { FrontendApplication, AbstractViewContribution } from '@theia/core/lib/browser';
 import { WidgetManager } from '@theia/core/lib/browser/widget-manager';
 import { injectable, inject } from "inversify";
-import { GitLogOptions } from './git-diff-model';
+import { GitDiffViewOptions } from './git-diff-model';
 import { GitDiffWidget } from './git-diff-widget';
 import { NAVIGATOR_CONTEXT_MENU } from '@theia/navigator/lib/browser/navigator-menu';
 import { UriCommandHandler, FileSystemCommandHandler } from '@theia/workspace/lib/browser/workspace-commands';
@@ -36,7 +35,6 @@ export class GitDiffContribution extends AbstractViewContribution<GitDiffWidget>
         @inject(SelectionService) protected readonly selectionService: SelectionService,
         @inject(WidgetManager) protected readonly widgetManager: WidgetManager,
         @inject(FrontendApplication) protected readonly app: FrontendApplication,
-        @inject(GitDiffService) protected readonly service: GitDiffService,
         @inject(GitQuickOpenService) protected readonly quickOpenService: GitQuickOpenService
     ) {
         super({
@@ -60,30 +58,31 @@ export class GitDiffContribution extends AbstractViewContribution<GitDiffWidget>
             execute: async fileUri => {
                 await this.quickOpenService.chooseTagsAndBranches(
                     (fromRevision, toRevision) => {
-                        const options: GitLogOptions = {
+                        const options: GitDiffViewOptions = {
                             fileUri,
                             fromRevision,
                             toRevision
                         };
-                        this.service.setData(options);
-                        this.openView({
-                            toggle: true,
-                            activate: true
-                        });
+                        this.showWidget(options);
                     });
             }
         }));
         commands.registerCommand(GitDiffCommands.OPEN_DIFF, {
-            execute: async (options: GitLogOptions) => {
-                if (options) {
-                    this.service.setData(options);
-                    this.openView({
-                        toggle: true,
-                        activate: true
-                    });
-                }
+            execute: async (options: GitDiffViewOptions) => {
+                this.showWidget(options);
             }
         });
+    }
+
+    protected async showWidget(options: GitDiffViewOptions) {
+        if (options) {
+            const widget = await this.widget;
+            await widget.initialize(options);
+            this.openView({
+                toggle: true,
+                activate: true
+            });
+        }
     }
 
     protected newFileHandler(handler: UriCommandHandler): FileSystemCommandHandler {
