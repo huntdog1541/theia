@@ -50,6 +50,7 @@ export class PreviewContribution implements CommandContribution, MenuContributio
     onStart() {
         this.previewWidgetManager.onWidgetCreated(uri => {
             this.registerOpenOnDoubleClick(uri);
+            this.registerLinkNavigation(uri);
             this.registerEditorAndPreviewSync(uri, 'preview-created');
         });
         this.editorManager.onActiveEditorChanged(editorWidget => {
@@ -129,6 +130,17 @@ export class PreviewContribution implements CommandContribution, MenuContributio
                         editor.selection = location.range;
                     }
                 });
+        });
+        previewWidget.disposed.connect(() => disposable.dispose());
+    }
+
+    protected registerLinkNavigation(uri: string): void {
+        const previewWidget = this.previewWidgetManager.get(uri);
+        if (!previewWidget) {
+            return;
+        }
+        const disposable = previewWidget.onDidLinkClick(link => {
+            console.log('should navigate to: ' + link);
         });
         previewWidget.disposed.connect(() => disposable.dispose());
     }

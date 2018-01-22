@@ -52,6 +52,7 @@ export class PreviewWidget extends BaseWidget implements StatefulWidget {
     protected readonly previewDisposables = new DisposableCollection();
     protected readonly onDidScrollEmitter = new Emitter<number>();
     protected readonly onDidDoubleClickEmitter = new Emitter<Location>();
+    protected readonly onDidLinkClickEmitter = new Emitter<string>();
 
     @inject(ResourceProvider)
     protected readonly resourceProvider: ResourceProvider;
@@ -72,7 +73,36 @@ export class PreviewWidget extends BaseWidget implements StatefulWidget {
         this.node.tabIndex = 0;
         this.startScrollSync();
         this.startDoubleClickListener();
+        this.startLinkClickListener();
         this.update();
+    }
+
+    protected startLinkClickListener(): void {
+        this.node.addEventListener('click', (event: MouseEvent) => {
+            let candidate = (event.target || event.srcElement) as HTMLElement;
+            while (candidate.tagName !== 'A') {
+                if (candidate === this.node) {
+                    return;
+                }
+                candidate = candidate.parentElement!;
+                if (!candidate) {
+                    return;
+                }
+            }
+            event.preventDefault();
+            const link = candidate.getAttribute('href');
+            if (link) {
+                this.fireDidLinkClick(link);
+            }
+        });
+    }
+
+    get onDidLinkClick(): Event<string> {
+        return this.onDidLinkClickEmitter.event;
+    }
+
+    protected fireDidLinkClick(link: string): void {
+        this.onDidLinkClickEmitter.fire(link);
     }
 
     protected preventScrollNotification: boolean = false;
