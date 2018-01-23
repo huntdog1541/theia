@@ -143,7 +143,15 @@ export class PreviewContribution implements CommandContribution, MenuContributio
             if (link.startsWith('#')) {
                 previewWidget.revealAnchor(link);
             }
-            console.log('should navigate to: ' + link);
+            const linkURI = new URI(link);
+            if (!linkURI.path.isAbsolute) {
+                const resolvedURI = new URI(uri).parent.resolve(linkURI.path).withFragment(linkURI.fragment);
+                if (this.canHandle(resolvedURI)) {
+                    this.open(resolvedURI, { area: 'main', mode: 'tab-after', ref: previewWidget }, true);
+                }
+            } else {
+                console.log('should open absolute uri: ' + linkURI.toString());
+            }
         });
         previewWidget.disposed.connect(() => disposable.dispose());
     }
