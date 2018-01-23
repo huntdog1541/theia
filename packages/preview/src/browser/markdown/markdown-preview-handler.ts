@@ -150,9 +150,7 @@ export class MarkdownPreviewHandler implements PreviewHandler {
             for (const renderer of renderers) {
                 engine.renderer.rules[renderer] = indexingTokenRenderer;
             }
-            anchor(engine, {
-
-            });
+            anchor(engine, {});
         }
         return this.engine;
     }
