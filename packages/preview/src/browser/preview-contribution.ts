@@ -147,12 +147,10 @@ export class PreviewContribution implements CommandContribution, MenuContributio
             if (!linkURI.path.isAbsolute) {
                 const resolvedURI = new URI(uri).parent.resolve(linkURI.path).withFragment(linkURI.fragment);
                 if (this.canHandle(resolvedURI)) {
-                    this.open(resolvedURI, { area: 'main', mode: 'tab-after', ref: previewWidget }, true).then(openedPreviewWidget => {
-                        // TODO reveal `openedPreviewWidget`, depends on https://github.com/theia-ide/theia/pull/1094
-                    });
+                    this.open(resolvedURI, { area: 'main', mode: 'tab-after', ref: previewWidget }, true);
                 }
             } else {
-                // TODO open `linkURI`
+                // TODO open absolute `linkURI`s
             }
         });
         previewWidget.disposed.connect(() => disposable.dispose());
