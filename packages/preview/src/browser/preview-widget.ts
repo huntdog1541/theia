@@ -45,6 +45,8 @@ export const PREVIEW_WIDGET_FACTORY_ID = 'preview-widget';
 
 const DEFAULT_ICON = 'fa fa-eye';
 
+let widgetCounter: number = 0;
+
 @injectable()
 export class PreviewWidget extends BaseWidget implements StatefulWidget {
 
@@ -68,7 +70,7 @@ export class PreviewWidget extends BaseWidget implements StatefulWidget {
     constructor(
     ) {
         super();
-        this.id = 'preview';
+        this.id = 'preview-' + widgetCounter++;
         this.title.iconClass = DEFAULT_ICON;
         this.title.closable = true;
         this.addClass(PREVIEW_WIDGET_CLASS);
