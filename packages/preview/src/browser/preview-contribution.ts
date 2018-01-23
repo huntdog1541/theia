@@ -51,16 +51,16 @@ export class PreviewContribution implements CommandContribution, MenuContributio
         this.previewWidgetManager.onWidgetCreated(uri => {
             this.registerOpenOnDoubleClick(uri);
             this.registerLinkNavigation(uri);
-            this.registerEditorAndPreviewSync(uri, 'preview-created');
+            this.registerEditorAndPreviewSync(uri, 'preview');
         });
         this.editorManager.onActiveEditorChanged(editorWidget => {
             if (editorWidget) {
-                this.registerEditorAndPreviewSync(editorWidget.editor.uri.toString(), 'editor-changed');
+                this.registerEditorAndPreviewSync(editorWidget.editor.uri.toString(), 'editor');
             }
         });
     }
 
-    protected async registerEditorAndPreviewSync(uri: string, event: 'preview-created' | 'editor-changed'): Promise<void> {
+    protected async registerEditorAndPreviewSync(uri: string, eventSource: 'preview' | 'editor'): Promise<void> {
         const previewWidget = this.previewWidgetManager.get(uri);
         const editorWidget = this.editorManager.editors.find(widget => widget.editor.uri.toString() === uri);
         if (!previewWidget || !editorWidget) {
@@ -75,7 +75,7 @@ export class PreviewContribution implements CommandContribution, MenuContributio
             this.revealSourceLineInPreview(previewWidget, position))
         );
         syncDisposables.push(this.synchronizeScrollToEditor(previewWidget, editor));
-        if (event === 'preview-created') {
+        if (eventSource === 'preview') {
             window.setTimeout(() => {
                 this.revealSourceLineInPreview(previewWidget, editor.cursor);
             }, 100);
