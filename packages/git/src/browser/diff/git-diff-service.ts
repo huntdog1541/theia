@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017 TypeFox and others.
+ * Copyright (C) 2018 TypeFox and others.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
@@ -41,16 +41,16 @@ export class GitDiffService {
         return changes;
     }
 
-    toUri(repository: Repository, pathSegment: undefined): undefined;
-    toUri(repository: Repository, pathSegment: string): string;
-    toUri(repository: Repository, pathSegment: string | undefined): string | undefined {
+    protected toUri(repository: Repository, pathSegment: undefined): undefined;
+    protected toUri(repository: Repository, pathSegment: string): string;
+    protected toUri(repository: Repository, pathSegment: string | undefined): string | undefined {
         if (pathSegment === undefined) {
             return undefined;
         }
         return FileUri.create(Path.join(FileUri.fsPath(repository.localUri), pathSegment)).toString();
     }
 
-    getRangeArg(options?: GitLogOptions): string {
+    protected getRangeArg(options?: GitLogOptions): string {
         let range = 'HEAD';
         if (options) {
             if (options.toRevision) {

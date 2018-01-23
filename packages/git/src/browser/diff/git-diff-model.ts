@@ -1,11 +1,9 @@
 /*
- * Copyright (C) 2017 TypeFox and others.
+ * Copyright (C) 2018 TypeFox and others.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
  */
-
-import URI from '@theia/core/lib/common/uri';
 
 /**
  * Options for further refining the `git log` commands.
@@ -13,20 +11,15 @@ import URI from '@theia/core/lib/common/uri';
 export interface GitLogOptions {
 
     /**
-     * The uri of a file to run the `git log` command. If not set, the log for all files in the given range are fetched.
+     * The uri of a file to run the `git diff` command. If not set, the diff for all files in the given range are fetched.
      */
     readonly fileUri?: string;
-
-    /**
-     * The name of the branch to run the `git log` command. If not specified, then the currently active branch will be used.
-     */
-    readonly branch?: string;
 
     /**
      * The last revision that should be included among the result running this query. Here, the revision can be a tag, a commitish,
      * or even an expression (`HEAD~3`). For more details to specify the revision, see [here](https://git-scm.com/docs/gitrevisions#_specifying_revisions).
      */
-    readonly toRevision?: string;
+    readonly toRevision: string;
 
     /**
      * Either the from revision (`string`) or a positive integer that is equivalent to the `~` suffix, which means the commit object that is the `fromRevision`<sup>th</sup>
