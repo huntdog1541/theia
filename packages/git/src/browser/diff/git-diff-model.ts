@@ -15,7 +15,7 @@ export interface GitLogOptions {
     /**
      * The uri of a file to run the `git log` command. If not set, the log for all files in the given range are fetched.
      */
-    readonly fileUri?: URI;
+    readonly fileUri?: string;
 
     /**
      * The name of the branch to run the `git log` command. If not specified, then the currently active branch will be used.

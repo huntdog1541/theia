@@ -11,7 +11,7 @@ import { GIT_DIFF } from "./git-diff-contribution";
 import { DiffUris } from '@theia/editor/lib/browser/diff-uris';
 import { GitDiffService } from './git-diff-service';
 import { GitDiffViewOptions } from './git-diff-model';
-import { VirtualRenderer, open, VirtualWidget, OpenerService } from "@theia/core/lib/browser";
+import { VirtualRenderer, open, VirtualWidget, OpenerService, StatefulWidget } from "@theia/core/lib/browser";
 import { GitRepositoryProvider } from '../git-repository-provider';
 import { GIT_RESOURCE_SCHEME } from '../git-resource';
 import URI from "@theia/core/lib/common/uri";
@@ -19,7 +19,7 @@ import { GitFileChange, GitFileStatus, GitUtils } from '../../common';
 import { LabelProvider } from '@theia/core/lib/browser/label-provider';
 
 @injectable()
-export class GitDiffWidget extends VirtualWidget {
+export class GitDiffWidget extends VirtualWidget implements StatefulWidget {
 
     protected dom: h.Child;
     protected fileChanges: GitFileChange[];
@@ -46,6 +46,14 @@ export class GitDiffWidget extends VirtualWidget {
         }
     }
 
+    storeState(): object {
+        return this.options;
+    }
+
+    restoreState(oldState: object): void {
+        this.initialize(oldState);
+    }
+
     protected async updateView() {
         const commitishBar = await this.renderDiffListHeader();
         if (this.options && this.options.fromRevision && this.options.toRevision) {
@@ -66,11 +74,12 @@ export class GitDiffWidget extends VirtualWidget {
             let fileDiv: h.Child = '';
             const header = this.options.title ? h.div({ className: 'git-diff-header' }, this.options.title) : '';
             if (this.options.fileUri) {
+                const uri: URI = new URI(this.options.fileUri);
                 const repository = this.repositoryProvider.selectedRepository;
                 const [icon, label, path] = await Promise.all([
-                    this.labelProvider.getIcon(this.options.fileUri),
-                    this.labelProvider.getName(this.options.fileUri),
-                    repository ? GitUtils.getRepositoryRelativePath(repository, this.options.fileUri) : this.labelProvider.getLongName(this.options.fileUri)
+                    this.labelProvider.getIcon(uri),
+                    this.labelProvider.getName(uri),
+                    repository ? GitUtils.getRepositoryRelativePath(repository, uri) : this.labelProvider.getLongName(uri)
                 ]);
                 const iconSpan = h.span({ className: icon + ' file-icon' });
                 const nameSpan = h.span({ className: 'name' }, label + ' ');
@@ -95,8 +104,9 @@ export class GitDiffWidget extends VirtualWidget {
             const fileChangeElement: h.Child = await this.renderGitItem(fileChange, commitSha, toCommitSha);
             files.push(fileChangeElement);
         }
-        const header = h.div({ className: 'theia-header' }, 'File changes');
-        return h.div({ className: "commitFileList" }, header, ...files);
+        const header = h.div({ className: 'theia-header' }, 'Files changed');
+        const list = h.div({ className: "commitFileList" }, ...files);
+        return h.div({ className: "commitFileListContainer" }, header, list);
     }
 
     protected async renderGitItem(change: GitFileChange, commitSha: string, fromCommitSha?: string): Promise<h.Child> {

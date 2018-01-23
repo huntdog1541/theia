@@ -55,13 +55,15 @@ export class GitDiffContribution extends AbstractViewContribution<GitDiffWidget>
 
     registerCommands(commands: CommandRegistry): void {
         commands.registerCommand(GitDiffCommands.OPEN_FILE_DIFF, this.newFileHandler({
-            execute: async fileUri => {
+            execute: async uri => {
                 await this.quickOpenService.chooseTagsAndBranches(
                     (fromRevision, toRevision) => {
+                        const fileUri = uri.toString();
                         const options: GitDiffViewOptions = {
                             fileUri,
                             fromRevision,
-                            toRevision
+                            toRevision,
+                            title: 'Comparison of...'
                         };
                         this.showWidget(options);
                     });

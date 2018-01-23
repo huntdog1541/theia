@@ -11,6 +11,7 @@ import { GitRepositoryProvider } from '../git-repository-provider';
 import { Git, Repository, GitFileChange, GitUtils } from '../../common';
 import { FileUri } from '@theia/core/lib/node/file-uri';
 import * as Path from 'path';
+import URI from '@theia/core/lib/common/uri';
 
 @injectable()
 export class GitDiffService {
@@ -24,7 +25,7 @@ export class GitDiffService {
         const range = this.getRangeArg(options);
         const args = ['diff', '--name-status', range];
         if (options.fileUri) {
-            args.push(...['--', GitUtils.getRepositoryRelativePath(repository, options.fileUri)]);
+            args.push(...['--', GitUtils.getRepositoryRelativePath(repository, new URI(options.fileUri))]);
         }
         const changes: GitFileChange[] = [];
         (await this.git.exec(repository, args)).stdout.split('\0').map(line => line.match(/\S+/g) || []).forEach(fragments => {
