@@ -143,52 +143,6 @@ export class GitWidget extends VirtualWidget {
         return [headerContainer, changesContainer];
     }
 
-    /**
-     * After rendering the DOM elements, it makes sure that the selection (`selectionIndex`) is correct in the repositories
-     * drop-down even if one adds/removes local Git clones to/from the workspace.
-     *
-     * By default the `selectionIndex` is `0`, so we need to set it based on the user's repository selection.
-     */
-    protected onUpdateRequest(message: Message): void {
-        super.onUpdateRequest(message);
-        const repositories = this.repositoryProvider.allRepositories;
-        // Set the selected repository.
-        // tslint:disable-next-line:no-any
-        const combo = document.getElementById('repositoryList') as any;
-        if (combo && combo.selectedIndex !== undefined && this.repositoryProvider.selectedRepository) {
-            const selectedUri = this.repositoryProvider.selectedRepository.localUri.toString();
-            const index = repositories.map(repository => repository.localUri.toString()).findIndex(uri => uri === selectedUri);
-            if (index !== -1) {
-                combo.selectedIndex = index;
-            }
-        }
-    }
-
-    protected renderRepositoryList(): h.Child {
-        const repositoryOptionElements: h.Child[] = [];
-        this.repositoryProvider.allRepositories.forEach(repository => {
-            const uri = new URI(repository.localUri);
-            repositoryOptionElements.push(h.option({ value: uri.toString() }, uri.displayName));
-        });
-
-        return h.select({
-            id: 'repositoryList',
-            onchange: async event => {
-                const repository = { localUri: (event.target as HTMLSelectElement).value };
-                this.repositoryProvider.selectedRepository = repository;
-                let status: WorkingDirectoryStatus | undefined = undefined;
-                if (repository) {
-                    try {
-                        status = await this.git.status(repository);
-                    } catch (error) {
-                        this.logError(error);
-                    }
-                }
-                this.updateView(status);
-            }
-        }, VirtualRenderer.flatten(repositoryOptionElements));
-    }
-
     protected renderCommandBar(repository: Repository | undefined): h.Child {
         const commit = repository ? h.a({
             className: 'button',
@@ -239,8 +193,7 @@ export class GitWidget extends VirtualWidget {
             }
         }, h.i({ className: 'fa fa-ellipsis-h' })) : '';
         const btnContainer = h.div({ className: 'flexcontainer buttons' }, commit, refresh, commands);
-        const repositoryListContainer = h.div({ id: 'repositoryListContainer' }, this.renderRepositoryList());
-        return h.div({ id: 'commandBar', className: 'flexcontainer evenlySpreaded' }, repositoryListContainer, btnContainer);
+        return h.div({ id: 'commandBar', className: 'flexcontainer evenlySpreaded' }, btnContainer);
     }
 
     protected renderMessageInput(): h.Child {
