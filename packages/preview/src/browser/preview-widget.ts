@@ -12,7 +12,8 @@ import {
 import {
     Resource,
     DisposableCollection,
-    Disposable
+    Disposable,
+    MaybePromise
 } from '@theia/core';
 import {
     BaseWidget,
@@ -49,6 +50,7 @@ export class PreviewWidget extends BaseWidget implements StatefulWidget {
 
     protected resource: Resource | undefined;
     protected previewHandler: PreviewHandler | undefined;
+    protected firstUpdate: (() => void) | undefined = undefined;
     protected readonly previewDisposables = new DisposableCollection();
     protected readonly onDidScrollEmitter = new Emitter<number>();
     protected readonly onDidDoubleClickEmitter = new Emitter<Location>();
@@ -143,16 +145,16 @@ export class PreviewWidget extends BaseWidget implements StatefulWidget {
         if (this.resource) {
             const uri = this.resource.uri;
             const document = this.workspace.textDocuments.find(d => d.uri === uri.toString());
-            if (document) {
-                const contents = document.getText();
-                this.renderHTML(contents).then(html => {
-                    this.node.innerHTML = html;
-                });
-            } else {
-                this.resource.readContents().then(async contents => {
-                    this.node.innerHTML = await this.renderHTML(contents);
-                });
-            }
+            this.updateContent(document ? document.getText() : this.resource.readContents());
+        }
+    }
+
+    protected async updateContent(content: MaybePromise<string>): Promise<void> {
+        const html = await this.renderHTML(await content);
+        this.node.innerHTML = html;
+        if (this.firstUpdate) {
+            this.firstUpdate();
+            this.firstUpdate = undefined;
         }
     }
 
@@ -214,6 +216,11 @@ export class PreviewWidget extends BaseWidget implements StatefulWidget {
         this.title.iconClass = previewHandler.iconClass || DEFAULT_ICON;
         this.title.caption = this.title.label;
         this.title.closable = true;
+        this.firstUpdate = () => {
+            if (uri.fragment !== '') {
+                this.revealAnchor(uri.fragment);
+            }
+        };
         this.update();
     }
 
@@ -282,14 +289,10 @@ export class PreviewWidget extends BaseWidget implements StatefulWidget {
     }
 
     revealAnchor(link: string): void {
-        if (!link.startsWith('#')) {
-            return;
-        }
-        const anchor = link.substring(1);
         if (!this.previewHandler || !this.previewHandler.findElementForAnchor) {
             return;
         }
-        const elementToReveal = this.previewHandler.findElementForAnchor(this.node, anchor);
+        const elementToReveal = this.previewHandler.findElementForAnchor(this.node, link);
         if (elementToReveal) {
             this.preventScrollNotification = true;
             elementToReveal.scrollIntoView({ behavior: 'instant' });

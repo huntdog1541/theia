@@ -27,7 +27,8 @@ export class MarkdownPreviewHandler implements PreviewHandler {
         return this.getEngine().render(content);
     }
 
-    findElementForAnchor(content: HTMLElement, anchor: string): HTMLElement | undefined {
+    findElementForAnchor(content: HTMLElement, link: string): HTMLElement | undefined {
+        const anchor = link.startsWith('#') ? link.substring(1) : link;
         const filter: NodeFilter = {
             acceptNode: (node: Node) => {
                 if (node instanceof HTMLHeadingElement) {
