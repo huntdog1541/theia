@@ -51,6 +51,7 @@ export class PreviewWidget extends BaseWidget implements StatefulWidget {
 
     protected resource: Resource | undefined;
     protected previewHandler: PreviewHandler | undefined;
+    protected firstUpdate: (() => void) | undefined = undefined;
     protected readonly previewDisposables = new DisposableCollection();
     protected readonly onDidScrollEmitter = new Emitter<number>();
     protected readonly onDidDoubleClickEmitter = new Emitter<Location>();
@@ -127,6 +128,10 @@ export class PreviewWidget extends BaseWidget implements StatefulWidget {
         this.node.innerHTML = '';
         if (contentElement) {
             this.node.appendChild(contentElement);
+            if (this.firstUpdate) {
+                this.firstUpdate();
+                this.firstUpdate = undefined;
+            }
         }
     }
 
@@ -182,7 +187,24 @@ export class PreviewWidget extends BaseWidget implements StatefulWidget {
         this.title.iconClass = previewHandler.iconClass || DEFAULT_ICON;
         this.title.caption = this.title.label;
         this.title.closable = true;
+        this.firstUpdate = () => {
+            this.revealFragment(uri);
+        };
         this.update();
+    }
+
+    revealFragment(uri: URI): void {
+        if (uri.fragment === '' || !this.previewHandler || !this.previewHandler.findElementForFragment) {
+            return;
+        }
+        const elementToReveal = this.previewHandler.findElementForFragment(this.node, uri.fragment);
+        if (elementToReveal) {
+            this.preventScrollNotification = true;
+            elementToReveal.scrollIntoView({ behavior: 'instant' });
+            window.setTimeout(() => {
+                this.preventScrollNotification = false;
+            }, 50);
+        }
     }
 
     get uri(): URI | undefined {

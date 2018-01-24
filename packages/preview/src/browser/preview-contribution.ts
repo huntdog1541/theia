@@ -50,7 +50,6 @@ export class PreviewContribution implements CommandContribution, MenuContributio
     onStart() {
         this.previewWidgetManager.onWidgetCreated(uri => {
             this.registerOpenOnDoubleClick(uri);
-            // this.registerLinkNavigation(uri);
             this.registerEditorAndPreviewSync(uri, 'preview');
         });
         this.editorManager.onActiveEditorChanged(editorWidget => {

@@ -43,7 +43,7 @@ export class MarkdownPreviewHandler implements PreviewHandler {
             if (link) {
                 event.preventDefault();
                 if (link.startsWith('#')) {
-                    this.revealAnchor(contentElement, link);
+                    this.revealFragment(contentElement, link);
                 } else {
                     const query = (event.ctrlKey) ? '' : 'open=preview';
                     const uri = this.resolveUri(link, params.baseUri, query);
@@ -80,20 +80,20 @@ export class MarkdownPreviewHandler implements PreviewHandler {
         return linkURI;
     }
 
-    protected revealAnchor(contentElement: HTMLElement, link: string) {
-        const elementToReveal = this.findElementForAnchor(contentElement, link);
+    protected revealFragment(contentElement: HTMLElement, fragment: string) {
+        const elementToReveal = this.findElementForFragment(contentElement, fragment);
         if (!elementToReveal) {
             return;
         }
         elementToReveal.scrollIntoView({ behavior: 'instant' });
     }
 
-    protected findElementForAnchor(content: HTMLElement, link: string): HTMLElement | undefined {
-        const anchor = link.startsWith('#') ? link.substring(1) : link;
+    findElementForFragment(content: HTMLElement, link: string): HTMLElement | undefined {
+        const fragment = link.startsWith('#') ? link.substring(1) : link;
         const filter: NodeFilter = {
             acceptNode: (node: Node) => {
                 if (node instanceof HTMLHeadingElement) {
-                    if (node.tagName.toLowerCase().startsWith('h') && node.id === anchor) {
+                    if (node.tagName.toLowerCase().startsWith('h') && node.id === fragment) {
                         return NodeFilter.FILTER_ACCEPT;
                     }
                     return NodeFilter.FILTER_SKIP;

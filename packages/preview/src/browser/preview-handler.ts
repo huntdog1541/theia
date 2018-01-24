@@ -20,6 +20,7 @@ export interface PreviewHandler {
     readonly iconClass?: string;
     canHandle(uri: URI): number;
     renderContent(params: RenderContentParams): MaybePromise<HTMLElement | undefined>;
+    findElementForFragment?(content: HTMLElement, fragment: string): HTMLElement | undefined;
     findElementForSourceLine?(content: HTMLElement, sourceLine: number): HTMLElement | undefined;
     getSourceLineForOffset?(content: HTMLElement, offset: number): number | undefined;
 }
