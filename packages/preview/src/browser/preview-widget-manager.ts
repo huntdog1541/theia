@@ -38,23 +38,22 @@ export class PreviewWidgetManager implements WidgetFactory {
     ) { }
 
     async createWidget(uri: string): Promise<PreviewWidget> {
-        const uriWithoutFragment = new URI(uri).withoutFragment().toString();
-        const previewWidget = this.widgets.get(uriWithoutFragment);
+        const key = this.asKey(uri);
+        const previewWidget = this.widgets.get(key);
         if (previewWidget) {
             return previewWidget;
         }
         const newWidget = this.container.get(PreviewWidget);
-        this.widgets.set(uriWithoutFragment, newWidget);
+        this.widgets.set(key, newWidget);
         newWidget.disposed.connect(() => {
-            this.widgets.delete(uriWithoutFragment);
+            this.widgets.delete(key);
         });
-        this.fireWidgetCreated(uriWithoutFragment);
+        this.fireWidgetCreated(key);
         return newWidget;
     }
 
     get(uri: string): PreviewWidget | undefined {
-        const uriWithoutFragment = new URI(uri).withoutFragment().toString();
-        return this.widgets.get(uriWithoutFragment);
+        return this.widgets.get(this.asKey(uri));
     }
 
     get onWidgetCreated(): Event<string> {
@@ -63,6 +62,10 @@ export class PreviewWidgetManager implements WidgetFactory {
 
     protected fireWidgetCreated(uri: string): void {
         this.onWidgetCreatedEmitter.fire(uri);
+    }
+
+    protected asKey(uri: string): string {
+        return new URI(uri).withoutQuery().withoutFragment().toString();
     }
 
 }

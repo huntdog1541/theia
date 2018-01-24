@@ -5,9 +5,10 @@
  * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
  */
 
-import { injectable } from "inversify";
-import { PreviewHandler } from '../preview-handler';
+import { injectable, inject } from "inversify";
+import { PreviewHandler, RenderContentParams } from '../preview-handler';
 import URI from "@theia/core/lib/common/uri";
+import { OpenerService } from '@theia/core/lib/browser';
 
 import * as hljs from 'highlight.js';
 import * as markdownit from 'markdown-it';
@@ -19,15 +20,75 @@ export class MarkdownPreviewHandler implements PreviewHandler {
     readonly iconClass: string = 'markdown-icon file-icon';
     readonly contentClass: string = 'markdown-preview';
 
+    @inject(OpenerService) protected readonly openerService: OpenerService;
+
     canHandle(uri: URI): number {
         return uri.path.ext === '.md' ? 500 : 0;
     }
 
-    renderHTML(content: string): string {
-        return this.getEngine().render(content);
+    renderContent(params: RenderContentParams): HTMLElement {
+        const content = params.content;
+        const renderedContent = this.getEngine().render(content);
+        const contentElement = document.createElement('div');
+        contentElement.classList.add(this.contentClass);
+        contentElement.innerHTML = renderedContent;
+        this.addLinkClickedListener(contentElement, params);
+        return contentElement;
     }
 
-    findElementForAnchor(content: HTMLElement, link: string): HTMLElement | undefined {
+    protected addLinkClickedListener(contentElement: HTMLElement, params: RenderContentParams): void {
+        contentElement.addEventListener('click', (event: MouseEvent) => {
+            const candidate = (event.target || event.srcElement) as HTMLElement;
+            const link = this.findLink(candidate, contentElement);
+            if (link) {
+                event.preventDefault();
+                if (link.startsWith('#')) {
+                    this.revealAnchor(contentElement, link);
+                } else {
+                    const query = (event.ctrlKey) ? '' : 'open=preview';
+                    const uri = this.resolveUri(link, params.baseUri, query);
+                    this.openLink(uri);
+                }
+            }
+        });
+    }
+
+    protected findLink(element: HTMLElement, container: HTMLElement): string | undefined {
+        let candidate = element;
+        while (candidate.tagName !== 'A') {
+            if (candidate === container) {
+                return;
+            }
+            candidate = candidate.parentElement!;
+            if (!candidate) {
+                return;
+            }
+        }
+        return candidate.getAttribute('href') || undefined;
+    }
+
+    protected async openLink(uri: URI): Promise<void> {
+        const opener = await this.openerService.getOpener(uri);
+        opener.open(uri);
+    }
+
+    protected resolveUri(link: string, baseUri: URI, query: string = ''): URI {
+        const linkURI = new URI(link);
+        if (!linkURI.path.isAbsolute) {
+            return baseUri.resolve(linkURI.path).withFragment(linkURI.fragment).withQuery(query);
+        }
+        return linkURI;
+    }
+
+    protected revealAnchor(contentElement: HTMLElement, link: string) {
+        const elementToReveal = this.findElementForAnchor(contentElement, link);
+        if (!elementToReveal) {
+            return;
+        }
+        elementToReveal.scrollIntoView({ behavior: 'instant' });
+    }
+
+    protected findElementForAnchor(content: HTMLElement, link: string): HTMLElement | undefined {
         const anchor = link.startsWith('#') ? link.substring(1) : link;
         const filter: NodeFilter = {
             acceptNode: (node: Node) => {

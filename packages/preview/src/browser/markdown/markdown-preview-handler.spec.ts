@@ -5,26 +5,26 @@
  * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
  */
 
+import './jsdom';
+
 import * as chai from 'chai';
 import { expect } from 'chai';
+import URI from "@theia/core/lib/common/uri";
 import { MarkdownPreviewHandler } from './markdown-preview-handler';
-
-const jsdom = require('jsdom-global');
 
 chai.use(require('chai-string'));
 
 let previewHandler: MarkdownPreviewHandler;
 
 before(() => {
-    jsdom();
     previewHandler = new MarkdownPreviewHandler();
 });
 
 describe("markdown-preview-handler", () => {
 
     it("renders html with line information", async () => {
-        const html = await previewHandler.renderHTML(exampleMarkdown1);
-        expect(html).equals(exampleHtml1);
+        const contentElement = await previewHandler.renderContent({ content: exampleMarkdown1, baseUri: new URI('') });
+        expect(contentElement.innerHTML).equals(exampleHtml1);
     });
 
     it("finds element for source line", () => {

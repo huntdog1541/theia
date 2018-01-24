@@ -12,7 +12,6 @@ import {
 import {
     Resource,
     DisposableCollection,
-    Disposable,
     MaybePromise
 } from '@theia/core';
 import {
@@ -52,11 +51,9 @@ export class PreviewWidget extends BaseWidget implements StatefulWidget {
 
     protected resource: Resource | undefined;
     protected previewHandler: PreviewHandler | undefined;
-    protected firstUpdate: (() => void) | undefined = undefined;
     protected readonly previewDisposables = new DisposableCollection();
     protected readonly onDidScrollEmitter = new Emitter<number>();
     protected readonly onDidDoubleClickEmitter = new Emitter<Location>();
-    protected readonly onDidClickLinkEmitter = new Emitter<string>();
 
     @inject(ResourceProvider)
     protected readonly resourceProvider: ResourceProvider;
@@ -77,36 +74,7 @@ export class PreviewWidget extends BaseWidget implements StatefulWidget {
         this.node.tabIndex = 0;
         this.startScrollSync();
         this.startDoubleClickListener();
-        this.startLinkClickedListener();
         this.update();
-    }
-
-    protected startLinkClickedListener(): void {
-        this.node.addEventListener('click', (event: MouseEvent) => {
-            let candidate = (event.target || event.srcElement) as HTMLElement;
-            while (candidate.tagName !== 'A') {
-                if (candidate === this.node) {
-                    return;
-                }
-                candidate = candidate.parentElement!;
-                if (!candidate) {
-                    return;
-                }
-            }
-            event.preventDefault();
-            const link = candidate.getAttribute('href');
-            if (link) {
-                this.fireDidClickLink(link);
-            }
-        });
-    }
-
-    get onDidClickLink(): Event<string> {
-        return this.onDidClickLinkEmitter.event;
-    }
-
-    protected fireDidClickLink(link: string): void {
-        this.onDidClickLinkEmitter.fire(link);
     }
 
     protected preventScrollNotification: boolean = false;
@@ -122,6 +90,9 @@ export class PreviewWidget extends BaseWidget implements StatefulWidget {
 
     protected startDoubleClickListener(): void {
         this.node.addEventListener('dblclick', (event: MouseEvent) => {
+            if (!(event.target instanceof HTMLElement)) {
+                return;
+            }
             const target = event.target as HTMLElement;
             let node: HTMLElement | null = target;
             while (node && node instanceof HTMLElement) {
@@ -152,20 +123,19 @@ export class PreviewWidget extends BaseWidget implements StatefulWidget {
     }
 
     protected async updateContent(content: MaybePromise<string>): Promise<void> {
-        const html = await this.renderHTML(await content);
-        this.node.innerHTML = html;
-        if (this.firstUpdate) {
-            this.firstUpdate();
-            this.firstUpdate = undefined;
+        const contentElement = await this.render(await content);
+        this.node.innerHTML = '';
+        if (contentElement) {
+            this.node.appendChild(contentElement);
         }
     }
 
-    protected async renderHTML(content: string): Promise<string> {
-        if (!this.previewHandler) {
-            return '';
+    protected async render(content: string): Promise<HTMLElement | undefined> {
+        if (!this.previewHandler || !this.resource) {
+            return undefined;
         }
-        const renderedHTML = await this.previewHandler.renderHTML(content);
-        return renderedHTML || '';
+        const baseUri = this.resource.uri.parent;
+        return this.previewHandler.renderContent({ content, baseUri });
     }
 
     storeState(): object {
@@ -208,21 +178,10 @@ export class PreviewWidget extends BaseWidget implements StatefulWidget {
         this.previewDisposables.push(this.workspace.onDidChangeTextDocument((params: DidChangeTextDocumentParams) => updateIfAffected(params.textDocument.uri)));
         this.previewDisposables.push(this.workspace.onDidCloseTextDocument((document: TextDocument) => updateIfAffected(document.uri)));
 
-        const contentClass = previewHandler.contentClass;
-        this.addClass(contentClass);
-        this.previewDisposables.push(Disposable.create(() => {
-            this.removeClass(contentClass);
-        }));
-
-        this.title.label = `${uri.path.base} preview`;
+        this.title.label = `Preview ${uri.path.base}`;
         this.title.iconClass = previewHandler.iconClass || DEFAULT_ICON;
         this.title.caption = this.title.label;
         this.title.closable = true;
-        this.firstUpdate = () => {
-            if (uri.fragment !== '') {
-                this.revealAnchor(uri.fragment);
-            }
-        };
         this.update();
     }
 
@@ -287,20 +246,6 @@ export class PreviewWidget extends BaseWidget implements StatefulWidget {
         const line = this.previewHandler.getSourceLineForOffset(this.node, offsetTop);
         if (line) {
             this.fireDidDoubleClickToSourceLine(line);
-        }
-    }
-
-    revealAnchor(link: string): void {
-        if (!this.previewHandler || !this.previewHandler.findElementForAnchor) {
-            return;
-        }
-        const elementToReveal = this.previewHandler.findElementForAnchor(this.node, link);
-        if (elementToReveal) {
-            this.preventScrollNotification = true;
-            elementToReveal.scrollIntoView({ behavior: 'instant' });
-            window.setTimeout(() => {
-                this.preventScrollNotification = false;
-            }, 50);
         }
     }
 
