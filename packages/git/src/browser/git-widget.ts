@@ -130,10 +130,10 @@ export class GitWidget extends VirtualWidget {
     protected render(): h.Child {
         const repository = this.repositoryProvider.selectedRepository;
 
-        const commandBar = this.renderCommandBar(repository);
         const messageInput = this.renderMessageInput();
         const messageTextarea = this.renderMessageTextarea();
-        const headerContainer = h.div({ className: 'headerContainer' }, commandBar, messageInput, messageTextarea);
+        const commandBar = this.renderCommandBar(repository);
+        const headerContainer = h.div({ className: 'headerContainer' }, messageInput, messageTextarea, commandBar);
 
         const mergeChanges = this.renderMergeChanges(repository) || '';
         const stagedChanges = this.renderStagedChanges(repository) || '';
@@ -144,34 +144,30 @@ export class GitWidget extends VirtualWidget {
     }
 
     protected renderCommandBar(repository: Repository | undefined): h.Child {
-        const commit = repository ? h.a({
-            className: 'button',
-            title: 'Commit',
-            onclick: async event => {
-                // need to access the element, because Phosphor.js is not updating `value`but only `setAttribute('value', ....)` which only sets the default value.
-                const messageInput = document.getElementById('git-messageInput') as HTMLInputElement;
-                if (this.message !== '') {
-                    const extendedMessageInput = document.getElementById('git-extendedMessageInput') as HTMLInputElement;
-                    try {
-                        // We can make sure, repository exists, otherwise we would not have this button.
-                        await this.git.commit(repository!, this.message + "\n\n" + this.additionalMessage);
-                        messageInput.value = '';
-                        extendedMessageInput.value = '';
-                        const status = await this.git.status(repository!);
-                        this.updateView(status);
-                    } catch (error) {
-                        this.logError(error);
-                    }
-                } else {
-                    if (messageInput) {
-                        this.messageInputHighlighted = true;
-                        this.update();
-                        messageInput.focus();
-                    }
-                    this.messageService.error('Please provide a commit message!');
+        const commit = async () => {
+            // need to access the element, because Phosphor.js is not updating `value`but only `setAttribute('value', ....)` which only sets the default value.
+            const messageInput = document.getElementById('git-messageInput') as HTMLInputElement;
+            if (this.message !== '') {
+                const extendedMessageInput = document.getElementById('git-extendedMessageInput') as HTMLInputElement;
+                try {
+                    // We can make sure, repository exists, otherwise we would not have this button.
+                    await this.git.commit(repository!, this.message + "\n\n" + this.additionalMessage);
+                    messageInput.value = '';
+                    extendedMessageInput.value = '';
+                    const status = await this.git.status(repository!);
+                    this.updateView(status);
+                } catch (error) {
+                    this.logError(error);
                 }
+            } else {
+                if (messageInput) {
+                    this.messageInputHighlighted = true;
+                    this.update();
+                    messageInput.focus();
+                }
+                this.messageService.error('Please provide a commit message!');
             }
-        }, h.i({ className: 'fa fa-check' })) : '';
+        };
         const refresh = h.a({
             className: 'button',
             title: 'Refresh',
@@ -179,7 +175,7 @@ export class GitWidget extends VirtualWidget {
                 await this.repositoryProvider.refresh();
             }
         }, h.i({ className: 'fa fa-refresh' }));
-        const commands = repository ? h.a({
+        const more = repository ? h.a({
             className: 'button',
             title: 'More...',
             onclick: event => {
@@ -192,8 +188,15 @@ export class GitWidget extends VirtualWidget {
                 }
             }
         }, h.i({ className: 'fa fa-ellipsis-h' })) : '';
-        const btnContainer = h.div({ className: 'flexcontainer buttons' }, commit, refresh, commands);
-        return h.div({ id: 'commandBar', className: 'flexcontainer evenlySpreaded' }, btnContainer);
+        const commandsContainer = h.div({ className: 'buttons' }, refresh, more);
+        const commitButton = h.button({
+            className: 'commit-button',
+            title: 'Commit all the staged changes',
+            onclick: () => commit()
+        }, 'Commit');
+        const commitContainer = h.div({ className: 'buttons' }, commitButton);
+        const placeholder = h.div({ className: 'placeholder' });
+        return h.div({ id: 'commandBar', className: 'flexcontainer' }, commandsContainer, placeholder, commitContainer);
     }
 
     protected renderMessageInput(): h.Child {

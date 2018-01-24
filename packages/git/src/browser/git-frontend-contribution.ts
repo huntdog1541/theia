@@ -9,7 +9,6 @@ import { GitRepositoryProvider } from './git-repository-provider';
 import { FrontendApplication } from '@theia/core/lib/browser';
 import { StatusBar, StatusBarAlignment } from '@theia/core/lib/browser/status-bar/status-bar';
 import { GitWatcher, GitStatusChangeEvent } from '../common/git-watcher';
-import { Repository } from '../common/git-model';
 import { GIT_COMMANDS } from './git-command';
 import { DisposableCollection } from '@theia/core';
 import URI from '@theia/core/lib/common/uri';
