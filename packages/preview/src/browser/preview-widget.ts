@@ -68,7 +68,7 @@ export class PreviewWidget extends BaseWidget implements StatefulWidget {
     constructor(
     ) {
         super();
-        this.id = 'preview-' + widgetCounter++;
+        this.id = 'preview-widget-' + widgetCounter++;
         this.title.iconClass = DEFAULT_ICON;
         this.title.closable = true;
         this.addClass(PREVIEW_WIDGET_CLASS);
@@ -110,7 +110,11 @@ export class PreviewWidget extends BaseWidget implements StatefulWidget {
 
     onActivateRequest(msg: Message): void {
         super.onActivateRequest(msg);
-        this.node.focus();
+        if (this.node.children.length > 0) {
+            (this.node.children.item(0) as HTMLElement).focus();
+        } else {
+            this.node.focus();
+        }
         this.update();
     }
 
