@@ -19,7 +19,7 @@ export interface GitLogOptions {
      * The last revision that should be included among the result running this query. Here, the revision can be a tag, a commitish,
      * or even an expression (`HEAD~3`). For more details to specify the revision, see [here](https://git-scm.com/docs/gitrevisions#_specifying_revisions).
      */
-    readonly toRevision: string;
+    readonly toRevision?: string;
 
     /**
      * Either the from revision (`string`) or a positive integer that is equivalent to the `~` suffix, which means the commit object that is the `fromRevision`<sup>th</sup>

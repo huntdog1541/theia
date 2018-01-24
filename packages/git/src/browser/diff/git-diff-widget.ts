@@ -29,8 +29,8 @@ export interface GitDiffFileDescription {
 export interface GitDiffViewModel {
     options: GitDiffViewOptions;
     fileChangeNodes: GitFileChangeNode[];
-    toRevision: string;
-    fromRevision?: string;
+    toRevision?: string;
+    fromRevision?: string | number;
     gitDiffFile?: GitDiffFileDescription
 }
 
@@ -117,20 +117,22 @@ export class GitDiffWidget extends GitBaseWidget implements StatefulWidget {
 
     protected renderDiffListHeader(): h.Child {
         let fileDiv: h.Child = '';
-        const header = this.viewModel.options.title ? h.div({ className: 'git-diff-header' }, this.viewModel.options.title) : '';
-        if (this.viewModel.gitDiffFile) {
+        if (this.viewModel.gitDiffFile && !this.viewModel.options.title) {
             const iconSpan = h.span({ className: this.viewModel.gitDiffFile.icon + ' file-icon' });
             const nameSpan = h.span({ className: 'name' }, this.viewModel.gitDiffFile.label + ' ');
             const pathSpan = h.span({ className: 'path' }, this.viewModel.gitDiffFile.path);
-            const compareDiv = h.div({ className: 'theia-header' }, 'Compare...');
-            fileDiv = h.div({ className: "gitItem diff-file" }, h.div({ className: "noWrapInfo" }, iconSpan, nameSpan, pathSpan));
-            const inSpan = h.span({ className: 'row-title' }, 'in:');
-            const withSpan = h.span({ className: 'row-title' }, 'with:');
-            const toDiv = this.viewModel.toRevision ? h.div({ className: "revision noWrapInfo" }, inSpan, this.viewModel.toRevision) : '';
-            const fromDiv = this.viewModel.fromRevision ? h.div({ className: "revision noWrapInfo" }, withSpan, this.viewModel.fromRevision.toString()) : '';
-            return h.div({ className: "commitishBar" }, header, compareDiv, fileDiv, toDiv, fromDiv);
+            const compareDiv = h.span({}, 'Compare ');
+            fileDiv = h.div({ className: "gitItem diff-file" }, h.div({ className: "noWrapInfo" }, compareDiv, iconSpan, nameSpan, pathSpan));
+            const withSpan = h.span({ className: 'row-title' }, 'with ');
+            const fromDiv =
+                this.viewModel.fromRevision && typeof this.viewModel.fromRevision !== 'number' ?
+                    h.div({ className: "revision noWrapInfo" }, withSpan, this.viewModel.fromRevision.toString()) :
+                    'previous revision';
+            return h.div({ className: "commitishBar" }, fileDiv, fromDiv);
+        } else {
+            const header = this.viewModel.options.title ? h.div({ className: 'git-diff-header' }, this.viewModel.options.title) : '';
+            return h.div({ className: "commitishBar" }, header);
         }
-        return h.div({ className: "commitishBar" }, header);
     }
 
     protected renderFileChangeList(): h.Child {
@@ -157,12 +159,14 @@ export class GitDiffWidget extends GitBaseWidget implements StatefulWidget {
                 let diffuri: URI | undefined;
                 if (change.status !== GitFileStatus.New) {
                     let fromURI: URI;
-                    if (this.viewModel.fromRevision) {
+                    if (this.viewModel.fromRevision && typeof this.viewModel.fromRevision !== 'number') {
                         fromURI = uri.withScheme(GIT_RESOURCE_SCHEME).withQuery(this.viewModel.fromRevision);
+                    } else if (this.viewModel.fromRevision) {
+                        fromURI = uri.withScheme(GIT_RESOURCE_SCHEME).withQuery(this.viewModel.toRevision + "~" + this.viewModel.fromRevision);
                     } else {
                         fromURI = uri.withScheme(GIT_RESOURCE_SCHEME).withQuery(this.viewModel.toRevision + "~1");
                     }
-                    const toURI = uri.withScheme(GIT_RESOURCE_SCHEME).withQuery(this.viewModel.toRevision);
+                    const toURI = uri.withScheme(GIT_RESOURCE_SCHEME).withQuery(this.viewModel.toRevision || 'HEAD');
                     diffuri = DiffUris.encode(fromURI, toURI, uri.displayName);
                 }
                 if (diffuri) {
