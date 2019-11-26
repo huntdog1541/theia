@@ -1,37 +1,56 @@
-/*
+/********************************************************************************
  * Copyright (C) 2017 TypeFox and others.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
- */
-
-import { ContainerModule } from 'inversify';
-import { ProblemWidget } from './problem-widget';
-import { ProblemContribution } from './problem-contribution';
-import { createProblemWidget } from './problem-container';
-import { CommandContribution, MenuContribution, KeybindingContribution } from "@theia/core/lib/common";
-import { FrontendApplicationContribution } from '@theia/core/lib/browser';
-import { ProblemManager } from './problem-manager';
-import { PROBLEM_KIND } from '../../common/problem-marker';
-import { WidgetFactory } from '@theia/core/lib/browser/widget-manager';
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v. 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0.
+ *
+ * This Source Code may also be made available under the following Secondary
+ * Licenses when the conditions for such availability set forth in the Eclipse
+ * Public License v. 2.0 are satisfied: GNU General Public License, version 2
+ * with the GNU Classpath Exception which is available at
+ * https://www.gnu.org/software/classpath/license.html.
+ *
+ * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
+ ********************************************************************************/
 
 import '../../../src/browser/style/index.css';
 
+import { ContainerModule } from 'inversify';
+import { ProblemWidget, PROBLEMS_WIDGET_ID } from './problem-widget';
+import { ProblemContribution } from './problem-contribution';
+import { createProblemWidget } from './problem-container';
+import { FrontendApplicationContribution, bindViewContribution, ApplicationShellLayoutMigration } from '@theia/core/lib/browser';
+import { ProblemManager } from './problem-manager';
+import { WidgetFactory } from '@theia/core/lib/browser/widget-manager';
+import { NavigatorTreeDecorator } from '@theia/navigator/lib/browser/navigator-decorator-service';
+import { ProblemDecorator } from './problem-decorator';
+import { ProblemTabBarDecorator } from './problem-tabbar-decorator';
+import { TabBarToolbarContribution } from '@theia/core/lib/browser/shell/tab-bar-toolbar';
+import { ProblemLayoutVersion3Migration } from './problem-layout-migrations';
+import { TabBarDecorator } from '@theia/core/lib/browser/shell/tab-bar-decorator';
+import { bindProblemPreferences } from './problem-preferences';
+
 export default new ContainerModule(bind => {
+    bindProblemPreferences(bind);
+
     bind(ProblemManager).toSelf().inSingletonScope();
 
     bind(ProblemWidget).toDynamicValue(ctx =>
         createProblemWidget(ctx.container)
     );
     bind(WidgetFactory).toDynamicValue(context => ({
-        id: PROBLEM_KIND,
+        id: PROBLEMS_WIDGET_ID,
         createWidget: () => context.container.get<ProblemWidget>(ProblemWidget)
     }));
+    bind(ApplicationShellLayoutMigration).to(ProblemLayoutVersion3Migration).inSingletonScope();
 
-    bind(ProblemContribution).toSelf().inSingletonScope();
-    for (const identifier of [CommandContribution, MenuContribution, KeybindingContribution, FrontendApplicationContribution]) {
-        bind(identifier).toDynamicValue(ctx =>
-            ctx.container.get(ProblemContribution)
-        ).inSingletonScope();
-    }
+    bindViewContribution(bind, ProblemContribution);
+    bind(FrontendApplicationContribution).toService(ProblemContribution);
+    bind(TabBarToolbarContribution).toService(ProblemContribution);
+
+    bind(ProblemDecorator).toSelf().inSingletonScope();
+    bind(NavigatorTreeDecorator).toService(ProblemDecorator);
+    bind(ProblemTabBarDecorator).toSelf().inSingletonScope();
+    bind(TabBarDecorator).toService(ProblemTabBarDecorator);
 });

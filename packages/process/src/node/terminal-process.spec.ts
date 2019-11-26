@@ -1,19 +1,25 @@
-/*
+/********************************************************************************
  * Copyright (C) 2017 Ericsson and others.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
- */
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v. 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0.
+ *
+ * This Source Code may also be made available under the following Secondary
+ * Licenses when the conditions for such availability set forth in the Eclipse
+ * Public License v. 2.0 are satisfied: GNU General Public License, version 2
+ * with the GNU Classpath Exception which is available at
+ * https://www.gnu.org/software/classpath/license.html.
+ *
+ * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
+ ********************************************************************************/
 import * as chai from 'chai';
-import 'mocha';
-import * as chaiAsPromised from 'chai-as-promised';
 import * as process from 'process';
 import * as stream from 'stream';
-import { testContainer } from './inversify.spec-config';
-import { TerminalProcessFactory } from './terminal-process';
-import { isWindows } from "@theia/core/lib/common";
-
-chai.use(chaiAsPromised);
+import { createProcessTestContainer } from './test/process-test-container';
+import { TerminalProcessFactory, TerminalProcess } from './terminal-process';
+import { IProcessExitEvent, ProcessErrorEvent } from './process';
+import { isWindows } from '@theia/core/lib/common/os';
 
 /**
  * Globals
@@ -21,55 +27,65 @@ chai.use(chaiAsPromised);
 
 const expect = chai.expect;
 
-describe('TerminalProcess', function () {
+let terminalProcessFactory: TerminalProcessFactory;
 
-    this.timeout(5000);
-    const terminalProcessFactory = testContainer.get<TerminalProcessFactory>(TerminalProcessFactory);
+beforeEach(() => {
+    terminalProcessFactory = createProcessTestContainer().get<TerminalProcessFactory>(TerminalProcessFactory);
+});
 
-    it('test error on non existent path', function () {
+describe('TerminalProcess', function (): void {
 
-        /* Strangely, Linux returns exited with code 1 when using a non existing path but Windows throws an error.
-        This would need to be investigated more.  */
+    this.timeout(20_000);
+
+    it('test error on non existent path', async function (): Promise<void> {
+        const error = await new Promise<ProcessErrorEvent>((resolve, reject) => {
+            const proc = terminalProcessFactory({ command: '/non-existent' });
+            proc.onStart(reject);
+            proc.onError(resolve);
+            proc.onExit(reject);
+        });
+
+        expect(error.code).eq('ENOENT');
+    });
+
+    it('test error on trying to execute a directory', async function (): Promise<void> {
+        const error = await new Promise<ProcessErrorEvent>((resolve, reject) => {
+            const proc = terminalProcessFactory({ command: __dirname });
+            proc.onStart(reject);
+            proc.onError(resolve);
+            proc.onExit(reject);
+        });
+
         if (isWindows) {
-            return expect(() => terminalProcessFactory({ command: '/non-existent' })).to.throw();
+            // On Windows, node-pty returns us a "File not found" message, so we can't really differentiate this case
+            // from trying to execute a non-existent file.  node's child_process.spawn also returns ENOENT, so it's
+            // probably the best we can get.
+            expect(error.code).eq('ENOENT');
         } else {
-            const terminalProcess = terminalProcessFactory({ command: '/non-existant' });
-            const p = new Promise(resolve => {
-                terminalProcess.onExit(event => {
-                    if (event.code > 0) { resolve(); }
-                });
-            });
-
-            return expect(p).to.be.eventually.fulfilled;
+            expect(error.code).eq('EACCES');
         }
     });
 
-    it('test exit', function () {
+    it('test exit', async function (): Promise<void> {
         const args = ['--version'];
-        const terminalProcess = terminalProcessFactory({ command: process.execPath, 'args': args });
-        const p = new Promise((resolve, reject) => {
-            terminalProcess.onError(error => {
-                reject();
-            });
-            terminalProcess.onExit(event => {
-                if (event.code === 0) {
-                    resolve();
-                } else {
-                    reject();
-                }
-            });
+        const exit = await new Promise<IProcessExitEvent>((resolve, reject) => {
+            const proc = terminalProcessFactory({ command: process.execPath, args });
+            proc.onExit(resolve);
+            proc.onError(reject);
         });
 
-        return expect(p).to.be.eventually.fulfilled;
+        expect(exit.code).eq(0);
     });
 
-    it('test pipe stream', function () {
-        const args = ['--version'];
-        const terminalProcess = terminalProcessFactory({ command: process.execPath, 'args': args });
+    it('test pipe stream', async function (): Promise<void> {
+        const v = await new Promise<string>((resolve, reject) => {
+            const args = ['--version'];
+            const terminalProcess = terminalProcessFactory({ command: process.execPath, args });
+            terminalProcess.onError(reject);
+            const outStream = new stream.PassThrough();
 
-        const outStream = new stream.PassThrough();
+            terminalProcess.createOutputStream().pipe(outStream);
 
-        const p = new Promise<string>((resolve, reject) => {
             let version = '';
             outStream.on('data', data => {
                 version += data.toString();
@@ -81,9 +97,81 @@ describe('TerminalProcess', function () {
             });
         });
 
-        terminalProcess.createOutputStream().pipe(outStream);
-
         /* Avoid using equal since terminal characters can be inserted at the end.  */
-        return expect(p).to.eventually.have.string(process.version);
+        expect(v).to.have.string(process.version);
     });
+
 });
+
+/**
+ * @FIXME
+ *
+ * For some reason, we get a lot of garbage on `stdout` when on Windows.
+ * Tested manually `example-browser` and `example-electron`, it seems like
+ * the terminals are behaving correctly, meaning that it is only a problem
+ * here in the tests.
+ */
+if (process.platform !== 'win32' || process.env.THEIA_PROCESS_TEST_OVERRIDE) {
+
+    describe('TerminalProcess { shell: true }', function (): void {
+
+        this.timeout(20_000);
+
+        interface ProcessExit extends IProcessExitEvent {
+            output: string;
+        }
+
+        // tslint:disable-next-line:no-any
+        async function checkOutput(proc: TerminalProcess, pattern?: RegExp): Promise<ProcessExit> {
+            return new Promise<ProcessExit>((resolve, reject) => {
+                let output = '';
+                proc.outputStream.on('data', chunk => output += chunk);
+                proc.onExit(async exit => {
+                    if (pattern) {
+                        expect(output).match(pattern, output);
+                    }
+                    resolve({ ...exit, output });
+                });
+                proc.onError(reject);
+            });
+        }
+
+        it('should execute the command as a whole if not arguments are specified', async function (): Promise<void> {
+            const proc = terminalProcessFactory({ command: 'echo a b c', options: { shell: true } });
+            const exit = await checkOutput(proc, /^a b c/);
+            expect(exit.code).eq(0);
+        });
+
+        it('should fail if user defines a full command line and arguments', async function (): Promise<void> {
+            const proc = terminalProcessFactory({ command: 'echo a b c', args: [], options: { shell: true } });
+            const exit = await checkOutput(proc);
+            expect(exit.code).not.eq(0);
+        });
+
+        it('should be able to exec using simple arguments', async function (): Promise<void> {
+            const proc = terminalProcessFactory({ command: 'echo', args: ['a', 'b', 'c'], options: { shell: true } });
+            const exit = await checkOutput(proc, /^a b c/);
+            expect(exit.code).eq(0);
+        });
+
+        it('should be able to run using arguments containing whitespace', async function (): Promise<void> {
+            const proc = terminalProcessFactory({ command: 'echo', args: ['a', 'b', '   c'], options: { shell: true } });
+            const exit = await checkOutput(proc, /^a b    c/);
+            expect(exit.code).eq(0);
+        });
+
+        it('will fail if user specify problematic arguments', async function (): Promise<void> {
+            const proc = terminalProcessFactory({ command: 'echo', args: ['a', 'b', 'c"'], options: { shell: true } });
+            const exit = await checkOutput(proc);
+            expect(exit.code).not.eq(0);
+        });
+
+        it('should be able to run using arguments specifying which quoting method to use', async function (): Promise<void> {
+            const proc = terminalProcessFactory({ command: 'echo', args: ['a', 'b', { value: 'c"', quoting: 'escaped' }], options: { shell: true } });
+            const exit = await checkOutput(proc, /^a b c"/);
+            expect(exit.code).eq(0);
+        });
+
+    });
+
+}

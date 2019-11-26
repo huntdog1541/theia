@@ -1,11 +1,20 @@
-/*
+/********************************************************************************
  * Copyright (C) 2017 TypeFox and others.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
- */
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v. 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0.
+ *
+ * This Source Code may also be made available under the following Secondary
+ * Licenses when the conditions for such availability set forth in the Eclipse
+ * Public License v. 2.0 are satisfied: GNU General Public License, version 2
+ * with the GNU Classpath Exception which is available at
+ * https://www.gnu.org/software/classpath/license.html.
+ *
+ * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
+ ********************************************************************************/
 
-import { inject, injectable } from "inversify";
+import { inject, injectable } from 'inversify';
 import { CommandRegistry, Emitter, DisposableCollection } from '@theia/core/lib/common';
 import ICommandEvent = monaco.commands.ICommandEvent;
 import ICommandService = monaco.commands.ICommandService;
@@ -18,7 +27,7 @@ export interface MonacoCommandServiceFactory {
 @injectable()
 export class MonacoCommandService implements ICommandService {
 
-    protected readonly onWillExecuteCommandEmitter = new Emitter<ICommandEvent>();
+    readonly _onWillExecuteCommand = new Emitter<ICommandEvent>();
 
     protected delegate: ICommandService | undefined;
     protected readonly delegateListeners = new DisposableCollection();
@@ -28,33 +37,35 @@ export class MonacoCommandService implements ICommandService {
     ) { }
 
     get onWillExecuteCommand(): monaco.IEvent<ICommandEvent> {
-        return this.onWillExecuteCommandEmitter.event;
+        return this._onWillExecuteCommand.event;
     }
 
-    setDelegate(delegate: ICommandService | undefined) {
+    setDelegate(delegate: ICommandService | undefined): void {
         this.delegateListeners.dispose();
         this.delegate = delegate;
         if (this.delegate) {
-            this.delegateListeners.push(this.delegate.onWillExecuteCommand(event =>
-                this.onWillExecuteCommandEmitter.fire(event)
+            this.delegateListeners.push(this.delegate._onWillExecuteCommand.event(event =>
+                this._onWillExecuteCommand.fire(event)
             ));
         }
     }
 
-    executeCommand(commandId: any, ...args: any[]): monaco.Promise<any> {
+    // tslint:disable-next-line:no-any
+    async executeCommand(commandId: any, ...args: any[]): Promise<any> {
         const handler = this.commandRegistry.getActiveHandler(commandId, ...args);
         if (handler) {
-            try {
-                this.onWillExecuteCommandEmitter.fire({ commandId });
-                return monaco.Promise.wrap(handler.execute(...args));
-            } catch (err) {
-                return monaco.Promise.wrapError(err);
-            }
+            this._onWillExecuteCommand.fire({ commandId });
+            return handler.execute(...args);
         }
+        return this.executeMonacoCommand(commandId, ...args);
+    }
+
+    // tslint:disable-next-line:no-any
+    async executeMonacoCommand(commandId: any, ...args: any[]): Promise<any> {
         if (this.delegate) {
             return this.delegate.executeCommand(commandId, ...args);
         }
-        return monaco.Promise.wrapError(new Error(`command '${commandId}' not found`));
+        throw new Error(`command '${commandId}' not found`);
     }
 
 }

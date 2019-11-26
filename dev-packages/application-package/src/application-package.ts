@@ -1,39 +1,41 @@
-/*
+/********************************************************************************
  * Copyright (C) 2017 TypeFox and others.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
- */
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v. 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0.
+ *
+ * This Source Code may also be made available under the following Secondary
+ * Licenses when the conditions for such availability set forth in the Eclipse
+ * Public License v. 2.0 are satisfied: GNU General Public License, version 2
+ * with the GNU Classpath Exception which is available at
+ * https://www.gnu.org/software/classpath/license.html.
+ *
+ * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
+ ********************************************************************************/
 
-import * as fs from 'fs-extra';
 import * as paths from 'path';
 import { readJsonFile, writeJsonFile } from './json-file';
-import { NpmRegistry, NpmRegistryConfig, NodePackage, PublishedNodePackage, sortByKey } from './npm-registry';
+import { NpmRegistry, NodePackage, PublishedNodePackage, sortByKey } from './npm-registry';
 import { Extension, ExtensionPackage, RawExtensionPackage } from './extension-package';
 import { ExtensionPackageCollector } from './extension-package-collector';
+import { ApplicationProps } from './application-props';
 
-export type ApplicationPackageTarget = 'browser' | 'electron';
-export class ApplicationPackageConfig extends NpmRegistryConfig {
-    readonly target: ApplicationPackageTarget;
-}
+// tslint:disable:no-implicit-dependencies
 
+// tslint:disable-next-line:no-any
 export type ApplicationLog = (message?: any, ...optionalParams: any[]) => void;
 export class ApplicationPackageOptions {
     readonly projectPath: string;
     readonly log?: ApplicationLog;
     readonly error?: ApplicationLog;
     readonly registry?: NpmRegistry;
+    readonly appTarget?: ApplicationProps.Target;
 }
 
 export type ApplicationModuleResolver = (modulePath: string) => string;
 
 export class ApplicationPackage {
-
-    static defaultConfig: ApplicationPackageConfig = {
-        ...NpmRegistry.defaultConfig,
-        target: 'browser'
-    };
-
     readonly projectPath: string;
     readonly log: ApplicationLog;
     readonly error: ApplicationLog;
@@ -44,6 +46,14 @@ export class ApplicationPackage {
         this.projectPath = options.projectPath;
         this.log = options.log || console.log.bind(console);
         this.error = options.error || console.error.bind(console);
+        if (this.isElectron()) {
+            const { version } = require('../package.json');
+            try {
+                require.resolve('@theia/electron/package.json', { paths: [this.projectPath] });
+            } catch {
+                console.warn(`please install @theia/electron@${version} as a runtime dependency`);
+            }
+        }
     }
 
     protected _registry: NpmRegistry | undefined;
@@ -52,21 +62,26 @@ export class ApplicationPackage {
             return this._registry;
         }
         this._registry = this.options.registry || new NpmRegistry();
-        this._registry.updateConfig(this.config);
+        this._registry.updateProps(this.props);
         return this._registry;
     }
 
-    get target(): ApplicationPackageTarget {
-        return this.config.target;
+    get target(): ApplicationProps.Target {
+        return this.props.target;
     }
 
-    protected _config: ApplicationPackageConfig | undefined;
-    get config(): ApplicationPackageConfig {
-        if (this._config) {
-            return this._config;
+    protected _props: ApplicationProps | undefined;
+    get props(): ApplicationProps {
+        if (this._props) {
+            return this._props;
         }
         const theia = this.pck.theia || {};
-        return this._config = { ...ApplicationPackage.defaultConfig, ...theia };
+
+        if (this.options.appTarget) {
+            theia.target = this.options.appTarget;
+        }
+
+        return this._props = { ...ApplicationProps.DEFAULT, ...theia };
     }
 
     protected _pck: NodePackage | undefined;
@@ -102,7 +117,7 @@ export class ApplicationPackage {
     }
 
     async findExtensionPackage(extension: string): Promise<ExtensionPackage | undefined> {
-        return this.getExtensionPackage(extension) || await this.resolveExtensionPackage(extension);
+        return this.getExtensionPackage(extension) || this.resolveExtensionPackage(extension);
     }
 
     async resolveExtensionPackage(extension: string): Promise<ExtensionPackage | undefined> {
@@ -244,10 +259,8 @@ export class ApplicationPackage {
      */
     get resolveModule(): ApplicationModuleResolver {
         if (!this._moduleResolver) {
-            const loaderPath = this.path('.application-module-loader.js');
-            fs.writeFileSync(loaderPath, 'module.exports = modulePath => require.resolve(modulePath);');
-            this._moduleResolver = require(loaderPath) as ApplicationModuleResolver;
-            fs.removeSync(loaderPath);
+            const resolutionPaths = [this.packagePath || process.cwd()];
+            this._moduleResolver = modulePath => require.resolve(modulePath, { paths: resolutionPaths });
         }
         return this._moduleResolver!;
     }

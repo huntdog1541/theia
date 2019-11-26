@@ -1,129 +1,161 @@
-/*
+/********************************************************************************
  * Copyright (C) 2017 TypeFox and others.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
- */
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v. 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0.
+ *
+ * This Source Code may also be made available under the following Secondary
+ * Licenses when the conditions for such availability set forth in the Eclipse
+ * Public License v. 2.0 are satisfied: GNU General Public License, version 2
+ * with the GNU Classpath Exception which is available at
+ * https://www.gnu.org/software/classpath/license.html.
+ *
+ * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
+ ********************************************************************************/
 
-import { injectable, inject } from "inversify";
-import { Emitter, Event, Disposable } from "../../common";
-import { ICompositeTreeNode, ITreeNode, ITree } from "./tree";
+import { injectable, inject, postConstruct } from 'inversify';
+import { Emitter, Event, Disposable } from '../../common';
+import { CompositeTreeNode, TreeNode, Tree } from './tree';
 
-export const ITreeExpansionService = Symbol("ITreeExpansionService");
+export const TreeExpansionService = Symbol('TreeExpansionService');
 
 /**
  * The tree expandable service.
  */
-export interface ITreeExpansionService extends Disposable {
+export interface TreeExpansionService extends Disposable {
     /**
      * Emit when the node is expanded or collapsed.
      */
-    readonly onExpansionChanged: Event<Readonly<IExpandableTreeNode>>;
+    readonly onExpansionChanged: Event<Readonly<ExpandableTreeNode>>;
     /**
      * If the given node is valid and collapsed then expand it.
      * Expanding a node refreshes all its children.
      *
      * Return true if a node has been expanded; otherwise false.
      */
-    expandNode(node: Readonly<IExpandableTreeNode>): boolean;
+    expandNode(node: Readonly<ExpandableTreeNode>): Promise<boolean>;
     /**
      * If the given node is valid and expanded then collapse it.
      *
      * Return true if a node has been collapsed; otherwise false.
      */
-    collapseNode(node: Readonly<IExpandableTreeNode>): boolean;
+    collapseNode(node: Readonly<ExpandableTreeNode>): Promise<boolean>;
+    /**
+     * If the given node is valid then collapse it recursively.
+     *
+     * Return true if a node has been collapsed; otherwise false.
+     */
+    collapseAll(node: Readonly<CompositeTreeNode>): Promise<boolean>;
     /**
      * If the given node is invalid then does nothing.
      * If the given node is collapsed then expand it; otherwise collapse it.
      */
-    toggleNodeExpansion(node: Readonly<IExpandableTreeNode>): void;
+    toggleNodeExpansion(node: Readonly<ExpandableTreeNode>): Promise<void>;
 }
 
 /**
  * The expandable tree node.
  */
-export interface IExpandableTreeNode extends ICompositeTreeNode {
+export interface ExpandableTreeNode extends CompositeTreeNode {
     /**
      * Test whether this tree node is expanded.
      */
     expanded: boolean;
 }
 
-export namespace IExpandableTreeNode {
-    export function is(node: ITreeNode | undefined): node is IExpandableTreeNode {
-        return !!node && ICompositeTreeNode.is(node) && 'expanded' in node;
+export namespace ExpandableTreeNode {
+    export function is(node: Object | undefined): node is ExpandableTreeNode {
+        return !!node && CompositeTreeNode.is(node) && 'expanded' in node;
     }
 
-    export function isExpanded(node: ITreeNode | undefined): node is IExpandableTreeNode {
-        return IExpandableTreeNode.is(node) && node.expanded;
+    export function isExpanded(node: Object | undefined): node is ExpandableTreeNode {
+        return ExpandableTreeNode.is(node) && node.expanded;
     }
 
-    export function isCollapsed(node: ITreeNode | undefined): node is IExpandableTreeNode {
-        return IExpandableTreeNode.is(node) && !node.expanded;
+    export function isCollapsed(node: Object | undefined): node is ExpandableTreeNode {
+        return ExpandableTreeNode.is(node) && !node.expanded;
     }
 }
 
 @injectable()
-export class TreeExpansionService implements ITreeExpansionService {
+export class TreeExpansionServiceImpl implements TreeExpansionService {
 
-    protected readonly onExpansionChangedEmitter = new Emitter<IExpandableTreeNode>();
+    @inject(Tree) protected readonly tree: Tree;
+    protected readonly onExpansionChangedEmitter = new Emitter<ExpandableTreeNode>();
 
-    constructor( @inject(ITree) protected readonly tree: ITree) {
-        tree.onNodeRefreshed(node => {
+    @postConstruct()
+    protected init(): void {
+        this.tree.onNodeRefreshed(node => {
             for (const child of node.children) {
-                if (IExpandableTreeNode.isExpanded(child)) {
-                    this.tree.refresh(child);
+                if (ExpandableTreeNode.isExpanded(child)) {
+                    node.waitUntil(this.tree.refresh(child));
                 }
             }
         });
     }
 
-    dispose() {
+    dispose(): void {
         this.onExpansionChangedEmitter.dispose();
     }
 
-    get onExpansionChanged(): Event<IExpandableTreeNode> {
+    get onExpansionChanged(): Event<ExpandableTreeNode> {
         return this.onExpansionChangedEmitter.event;
     }
 
-    protected fireExpansionChanged(node: IExpandableTreeNode): void {
+    protected fireExpansionChanged(node: ExpandableTreeNode): void {
         this.onExpansionChangedEmitter.fire(node);
     }
 
-    expandNode(raw: IExpandableTreeNode): boolean {
+    async expandNode(raw: ExpandableTreeNode): Promise<boolean> {
         const node = this.tree.validateNode(raw);
-        if (IExpandableTreeNode.isCollapsed(node)) {
-            return this.doExpandNode(node);
+        if (ExpandableTreeNode.isCollapsed(node)) {
+            return await this.doExpandNode(node);
         }
         return false;
     }
 
-    protected doExpandNode(node: IExpandableTreeNode): boolean {
+    protected async doExpandNode(node: ExpandableTreeNode): Promise<boolean> {
         node.expanded = true;
+        await this.tree.refresh(node);
         this.fireExpansionChanged(node);
-        this.tree.refresh(node);
         return true;
     }
 
-    collapseNode(raw: IExpandableTreeNode): boolean {
+    async collapseNode(raw: ExpandableTreeNode): Promise<boolean> {
         const node = this.tree.validateNode(raw);
-        if (IExpandableTreeNode.isExpanded(node)) {
-            return this.doCollapseNode(node);
-        }
-        return false;
+        return this.doCollapseNode(node);
     }
 
-    protected doCollapseNode(node: IExpandableTreeNode): boolean {
+    async collapseAll(raw: CompositeTreeNode): Promise<boolean> {
+        const node = this.tree.validateNode(raw);
+        return this.doCollapseAll(node);
+    }
+
+    protected doCollapseAll(node: TreeNode | undefined): boolean {
+        let result = false;
+        if (CompositeTreeNode.is(node)) {
+            for (const child of node.children) {
+                result = this.doCollapseAll(child) || result;
+            }
+        }
+        return this.doCollapseNode(node) || result;
+    }
+
+    protected doCollapseNode(node: TreeNode | undefined): boolean {
+        if (!ExpandableTreeNode.isExpanded(node)) {
+            return false;
+        }
         node.expanded = false;
         this.fireExpansionChanged(node);
         return true;
     }
 
-    toggleNodeExpansion(node: IExpandableTreeNode): void {
+    async toggleNodeExpansion(node: ExpandableTreeNode): Promise<void> {
         if (node.expanded) {
-            this.collapseNode(node);
+            await this.collapseNode(node);
         } else {
-            this.expandNode(node);
+            await this.expandNode(node);
         }
     }
 

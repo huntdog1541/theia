@@ -1,96 +1,86 @@
-/*
+/********************************************************************************
  * Copyright (C) 2017 Ericsson and others.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
- */
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v. 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0.
+ *
+ * This Source Code may also be made available under the following Secondary
+ * Licenses when the conditions for such availability set forth in the Eclipse
+ * Public License v. 2.0 are satisfied: GNU General Public License, version 2
+ * with the GNU Classpath Exception which is available at
+ * https://www.gnu.org/software/classpath/license.html.
+ *
+ * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
+ ********************************************************************************/
 
-import { injectable, inject } from 'inversify';
-import { ILogger } from '@theia/core/lib/common/';
-import { ProcessType, TaskInfo } from '../common/task-protocol';
+import { injectable } from 'inversify';
+import { ILogger, Disposable, DisposableCollection, Emitter, Event, MaybePromise } from '@theia/core/lib/common/';
 import { TaskManager } from './task-manager';
-import { Process, ProcessManager } from "@theia/process/lib/node";
+import { TaskInfo, TaskExitedEvent, TaskConfiguration, TaskOutputEvent } from '../common/task-protocol';
 
-export const TaskProcessOptions = Symbol("TaskProcessOptions");
-export interface TaskProcessOptions {
-    label: string,
-    command: string,
-    process: Process,
-    processType: ProcessType,
-    context?: string
+export interface TaskOptions {
+    label: string;
+    config: TaskConfiguration;
+    context?: string;
 }
 
-export const TaskFactory = Symbol("TaskFactory");
-export type TaskFactory = (options: TaskProcessOptions) => Task;
-
 @injectable()
-export class Task {
+export abstract class Task implements Disposable {
+
     protected taskId: number;
+    protected readonly toDispose: DisposableCollection = new DisposableCollection();
+    readonly exitEmitter: Emitter<TaskExitedEvent>;
+    readonly outputEmitter: Emitter<TaskOutputEvent>;
 
     constructor(
-        @inject(TaskManager) protected readonly taskManager: TaskManager,
-        @inject(ILogger) protected readonly logger: ILogger,
-        @inject(TaskProcessOptions) protected readonly options: TaskProcessOptions,
-        @inject(ProcessManager) protected readonly processManager: ProcessManager
+        protected readonly taskManager: TaskManager,
+        protected readonly logger: ILogger,
+        protected readonly options: TaskOptions
     ) {
         this.taskId = this.taskManager.register(this, this.options.context);
-
-        const toDispose =
-            this.process.onExit(event => {
-                this.taskManager.delete(this);
-                toDispose.dispose();
-            });
-        this.logger.info(`Created new task, id: ${this.id}, process id: ${this.options.process.id}, OS PID: ${this.process.pid}, context: ${this.context}`);
+        this.exitEmitter = new Emitter<TaskExitedEvent>();
+        this.outputEmitter = new Emitter<TaskOutputEvent>();
+        this.toDispose.push(this.exitEmitter);
+        this.toDispose.push(this.outputEmitter);
     }
 
-    /** terminates the task */
-    kill(): Promise<void> {
-        return new Promise<void>(resolve => {
-            if (this.process.killed) {
-                resolve();
-            } else {
-                const toDispose = this.process.onExit(event => {
-                    toDispose.dispose();
-                    resolve();
-                });
-                this.process.kill();
-            }
-        });
+    /** Terminates the task. */
+    abstract kill(): Promise<void>;
+
+    get onExit(): Event<TaskExitedEvent> {
+        return this.exitEmitter.event;
     }
 
-    /** Returns runtime information about task */
-    getRuntimeInfo(): TaskInfo {
-        return {
-            taskId: this.id,
-            osProcessId: this.process.pid,
-            terminalId: (this.processType === 'terminal') ? this.process.id : undefined,
-            processId: (this.processType === 'raw') ? this.process.id : undefined,
-            command: this.command,
-            label: this.label,
-            ctx: this.context
-        };
+    get onOutput(): Event<TaskOutputEvent> {
+        return this.outputEmitter.event;
     }
 
-    get command() {
-        return this.options.command;
-    }
-    get process() {
-        return this.options.process;
+    /** Has to be called when a task has concluded its execution. */
+    protected fireTaskExited(event: TaskExitedEvent): void {
+        this.exitEmitter.fire(event);
     }
 
-    get id() {
+    protected fireOutputLine(event: TaskOutputEvent): void {
+        this.outputEmitter.fire(event);
+    }
+
+    /** Returns runtime information about task. */
+    abstract getRuntimeInfo(): MaybePromise<TaskInfo>;
+
+    get id(): number {
         return this.taskId;
     }
 
-    get context() {
+    get context(): string | undefined {
         return this.options.context;
     }
 
-    get processType() {
-        return this.options.processType;
+    get label(): string {
+        return this.options.label;
     }
 
-    get label() {
-        return this.options.label;
+    dispose(): void {
+        this.toDispose.dispose();
     }
 }

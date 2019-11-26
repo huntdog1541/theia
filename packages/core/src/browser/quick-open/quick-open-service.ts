@@ -1,52 +1,42 @@
-/*
+/********************************************************************************
  * Copyright (C) 2017 TypeFox and others.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
- */
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v. 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0.
+ *
+ * This Source Code may also be made available under the following Secondary
+ * Licenses when the conditions for such availability set forth in the Eclipse
+ * Public License v. 2.0 are satisfied: GNU General Public License, version 2
+ * with the GNU Classpath Exception which is available at
+ * https://www.gnu.org/software/classpath/license.html.
+ *
+ * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
+ ********************************************************************************/
 
-import { injectable } from "inversify";
+import { injectable } from 'inversify';
 import { QuickOpenModel } from './quick-open-model';
+import { MessageType } from '../../common/message-service-protocol';
+import * as common from '../../common/quick-open-service';
 
-export type QuickOpenOptions = Partial<QuickOpenOptions.Resolved>;
-export namespace QuickOpenOptions {
-    export interface Resolved {
-        readonly prefix: string;
-        readonly placeholder: string;
-
-        readonly fuzzyMatchLabel: boolean;
-        readonly fuzzyMatchDetail: boolean;
-        readonly fuzzyMatchDescription: boolean;
-        readonly fuzzySort: boolean;
-
-        selectIndex(lookfor: string): number;
-
-        onClose(canceled: boolean): void;
-    }
-    export const defaultOptions: Resolved = Object.freeze({
-        prefix: '',
-        placeholder: '',
-
-        fuzzyMatchLabel: false,
-        fuzzyMatchDetail: false,
-        fuzzyMatchDescription: false,
-        fuzzySort: false,
-
-        onClose: () => { /* no-op*/ },
-
-        selectIndex: () => -1
-    });
-    export function resolve(options: QuickOpenOptions = {}, source: Resolved = defaultOptions): Resolved {
-        return Object.assign({}, source, options);
-    }
-}
+/**
+ * @deprecated import from `@theia/core/lib/common/quick-open-service` instead
+ */
+export { QuickOpenOptions } from '../../common/quick-open-service';
 
 @injectable()
 export class QuickOpenService {
     /**
      * It should be implemented by an extension, e.g. by the monaco extension.
      */
-    open(model: QuickOpenModel, options?: QuickOpenOptions): void {
-        // no-op
-    }
+    open(model: QuickOpenModel, options?: common.QuickOpenOptions): void { }
+    hide(reason?: common.QuickOpenHideReason): void { }
+    showDecoration(type: MessageType): void { }
+    hideDecoration(): void { }
+    refresh(): void { }
+
+    /**
+     * Dom node of the QuickOpenWidget
+     */
+    widgetNode: HTMLElement;
 }

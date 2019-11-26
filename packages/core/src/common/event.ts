@@ -1,11 +1,23 @@
-/*
+/********************************************************************************
  * Copyright (C) 2017 TypeFox and others.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
- */
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v. 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0.
+ *
+ * This Source Code may also be made available under the following Secondary
+ * Licenses when the conditions for such availability set forth in the Eclipse
+ * Public License v. 2.0 are satisfied: GNU General Public License, version 2
+ * with the GNU Classpath Exception which is available at
+ * https://www.gnu.org/software/classpath/license.html.
+ *
+ * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
+ ********************************************************************************/
 
-import { Disposable } from "./disposable";
+// tslint:disable:no-any
+
+import { Disposable } from './disposable';
+import { MaybePromise } from './types';
 
 /**
  * Represents a typed event.
@@ -20,19 +32,46 @@ export interface Event<T> {
      * @return a disposable to remove the listener again.
      */
     (listener: (e: T) => any, thisArgs?: any, disposables?: Disposable[]): Disposable;
+    /**
+     * An emitter will print a warning if more listeners are added for this event.
+     * The event.maxListeners allows the limit to be modified for this specific event.
+     * The value can be set to 0 to indicate an unlimited number of listener.
+     */
+    maxListeners: number
 }
 
 export namespace Event {
-    const _disposable = { dispose() { } };
-    export const None: Event<any> = function () { return _disposable; };
+    const _disposable = { dispose(): void { } };
+    export const None: Event<any> = Object.assign(function (): { dispose(): void } { return _disposable; }, {
+        get maxListeners(): number { return 0; },
+        set maxListeners(maxListeners: number) { }
+    });
+
+    /**
+     * Given an event and a `map` function, returns another event which maps each element
+     * through the mapping function.
+     */
+    export function map<I, O>(event: Event<I>, mapFunc: (i: I) => O): Event<O> {
+        return Object.assign((listener: (e: O) => any, thisArgs?: any, disposables?: Disposable[]) =>
+            event(i => listener.call(thisArgs, mapFunc(i)), undefined, disposables)
+            , {
+                maxListeners: 0
+            }
+        );
+    }
 }
 
-class CallbackList {
+type Callback = (...args: any[]) => any;
+class CallbackList implements Iterable<Callback> {
 
     private _callbacks: Function[] | undefined;
     private _contexts: any[] | undefined;
 
-    public add(callback: Function, context: any = null, bucket?: Disposable[]): void {
+    get length(): number {
+        return this._callbacks && this._callbacks.length || 0;
+    }
+
+    public add(callback: Function, context: any = undefined, bucket?: Disposable[]): void {
         if (!this._callbacks) {
             this._callbacks = [];
             this._contexts = [];
@@ -45,13 +84,13 @@ class CallbackList {
         }
     }
 
-    public remove(callback: Function, context: any = null): void {
+    public remove(callback: Function, context: any = undefined): void {
         if (!this._callbacks) {
             return;
         }
 
         let foundCallbackWithDifferentContext = false;
-        for (let i = 0, len = this._callbacks.length; i < len; i++) {
+        for (let i = 0; i < this._callbacks.length; i++) {
             if (this._callbacks[i] === callback) {
                 if (this._contexts![i] === context) {
                     // callback & context match => remove it
@@ -69,20 +108,26 @@ class CallbackList {
         }
     }
 
-    public invoke(...args: any[]): any[] {
+    // tslint:disable-next-line:typedef
+    public [Symbol.iterator]() {
         if (!this._callbacks) {
-            return [];
+            return [][Symbol.iterator]();
         }
-
-        const ret: any[] = [];
         const callbacks = this._callbacks.slice(0);
         const contexts = this._contexts!.slice(0);
 
-        for (let i = 0, len = callbacks.length; i < len; i++) {
+        return callbacks.map((callback, i) =>
+            (...args: any[]) => callback.apply(contexts[i], args)
+        )[Symbol.iterator]();
+    }
+
+    public invoke(...args: any[]): any[] {
+        const ret: any[] = [];
+        for (const callback of this) {
             try {
-                ret.push(callbacks[i].apply(contexts[i], args));
+                ret.push(callback(...args));
             } catch (e) {
-                // FIXME: log error
+                console.error(e);
             }
         }
         return ret;
@@ -103,15 +148,17 @@ export interface EmitterOptions {
     onLastListenerRemove?: Function;
 }
 
-export class Emitter<T> {
+export class Emitter<T = any> {
 
-    private static _noop = function () { };
+    private static _noop = function (): void { };
 
     private _event: Event<T>;
     private _callbacks: CallbackList | undefined;
+    private _disposed = false;
 
-    constructor(private _options?: EmitterOptions) {
-    }
+    constructor(
+        private _options?: EmitterOptions
+    ) { }
 
     /**
      * For the public to allow to subscribe
@@ -119,7 +166,7 @@ export class Emitter<T> {
      */
     get event(): Event<T> {
         if (!this._event) {
-            this._event = (listener: (e: T) => any, thisArgs?: any, disposables?: Disposable[]) => {
+            this._event = Object.assign((listener: (e: T) => any, thisArgs?: any, disposables?: Disposable[]) => {
                 if (!this._callbacks) {
                     this._callbacks = new CallbackList();
                 }
@@ -127,14 +174,18 @@ export class Emitter<T> {
                     this._options.onFirstListenerAdd(this);
                 }
                 this._callbacks.add(listener, thisArgs);
+                this.checkMaxListeners(this._event.maxListeners);
 
                 let result: Disposable;
                 result = {
                     dispose: () => {
-                        this._callbacks!.remove(listener, thisArgs);
                         result.dispose = Emitter._noop;
-                        if (this._options && this._options.onLastListenerRemove && this._callbacks!.isEmpty()) {
-                            this._options.onLastListenerRemove(this);
+                        if (!this._disposed) {
+                            this._callbacks!.remove(listener, thisArgs);
+                            result.dispose = Emitter._noop;
+                            if (this._options && this._options.onLastListenerRemove && this._callbacks!.isEmpty()) {
+                                this._options.onLastListenerRemove(this);
+                            }
                         }
                     }
                 };
@@ -143,9 +194,22 @@ export class Emitter<T> {
                 }
 
                 return result;
-            };
+            }, {
+                maxListeners: 30
+            }
+            );
         }
         return this._event;
+    }
+
+    protected checkMaxListeners(maxListeners: number): void {
+        if (maxListeners === 0 || !this._callbacks) {
+            return;
+        }
+        const count = this._callbacks.length;
+        if (count > maxListeners) {
+            console.warn(new Error(`Possible Emitter memory leak detected. ${count} listeners added. Use event.maxListeners to increase the limit (${maxListeners})`));
+        }
     }
 
     /**
@@ -154,14 +218,75 @@ export class Emitter<T> {
      */
     fire(event: T): any {
         if (this._callbacks) {
-            this._callbacks.invoke.call(this._callbacks, event);
+            this._callbacks.invoke(event);
         }
     }
 
-    dispose() {
+    /**
+     * Process each listener one by one.
+     * Return `false` to stop iterating over the listeners, `true` to continue.
+     */
+    async sequence(processor: (listener: (e: T) => any) => MaybePromise<boolean>): Promise<void> {
+        if (this._callbacks) {
+            for (const listener of this._callbacks) {
+                if (!await processor(listener)) {
+                    break;
+                }
+            }
+        }
+    }
+
+    dispose(): void {
         if (this._callbacks) {
             this._callbacks.dispose();
             this._callbacks = undefined;
+        }
+        this._disposed = true;
+    }
+}
+
+export interface WaitUntilEvent {
+    // tslint:disable:no-any
+    /**
+     * Allows to pause the event loop until the provided thenable resolved.
+     *
+     * *Note:* It can only be called during event dispatch and not in an asynchronous manner
+     *
+     * @param thenable A thenable that delays execution.
+     */
+    waitUntil(thenable: Promise<any>): void;
+    // tslint:enable:no-any
+}
+export namespace WaitUntilEvent {
+    export async function fire<T extends WaitUntilEvent>(
+        emitter: Emitter<T>,
+        event: Pick<T, Exclude<keyof T, 'waitUntil'>>,
+        timeout: number | undefined = undefined
+    ): Promise<void> {
+        const waitables: Promise<void>[] = [];
+        const asyncEvent = Object.assign(event, {
+            // tslint:disable-next-line:no-any
+            waitUntil: (thenable: Promise<any>) => {
+                if (Object.isFrozen(waitables)) {
+                    throw new Error('waitUntil cannot be called asynchronously.');
+                }
+                waitables.push(thenable);
+            }
+        }) as T;
+        try {
+            emitter.fire(asyncEvent);
+            // Asynchronous calls to `waitUntil` should fail.
+            Object.freeze(waitables);
+        } finally {
+            delete asyncEvent['waitUntil'];
+        }
+        if (!waitables.length) {
+            return;
+        }
+        if (timeout !== undefined) {
+            await Promise.race([Promise.all(waitables), new Promise(resolve => setTimeout(resolve, timeout))]);
+        } else {
+            await Promise.all(waitables);
         }
     }
 }

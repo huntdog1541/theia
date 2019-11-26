@@ -1,19 +1,29 @@
-/*
+/********************************************************************************
  * Copyright (C) 2017 TypeFox and others.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
- */
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v. 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0.
+ *
+ * This Source Code may also be made available under the following Secondary
+ * Licenses when the conditions for such availability set forth in the Eclipse
+ * Public License v. 2.0 are satisfied: GNU General Public License, version 2
+ * with the GNU Classpath Exception which is available at
+ * https://www.gnu.org/software/classpath/license.html.
+ *
+ * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
+ ********************************************************************************/
 
 import * as electron from 'electron';
 import { inject, injectable } from 'inversify';
 import {
     Command, CommandContribution, CommandRegistry,
-    KeybindingContribution, KeybindingRegistry,
-    MenuModelRegistry, MenuContribution
+    isOSX, MenuModelRegistry, MenuContribution, Disposable
 } from '../../common';
+import { KeybindingContribution, KeybindingRegistry } from '../../browser';
 import { FrontendApplication, FrontendApplicationContribution, CommonMenus } from '../../browser';
 import { ElectronMainMenuFactory } from './electron-main-menu-factory';
+import { FrontendApplicationStateService, FrontendApplicationState } from '../../browser/frontend-application-state';
 
 export namespace ElectronCommands {
     export const TOGGLE_DEVELOPER_TOOLS: Command = {
@@ -36,6 +46,10 @@ export namespace ElectronCommands {
         id: 'view.resetZoom',
         label: 'Reset Zoom'
     };
+    export const CLOSE_WINDOW: Command = {
+        id: 'close.window',
+        label: 'Close Window'
+    };
 }
 
 export namespace ElectronMenus {
@@ -47,19 +61,56 @@ export namespace ElectronMenus {
     export const HELP_TOGGLE = [...CommonMenus.HELP, 'z_toggle'];
 }
 
+export namespace ElectronMenus {
+    export const FILE_CLOSE = [...CommonMenus.FILE_CLOSE, 'window-close'];
+}
+
 @injectable()
 export class ElectronMenuContribution implements FrontendApplicationContribution, CommandContribution, MenuContribution, KeybindingContribution {
+
+    @inject(FrontendApplicationStateService)
+    protected readonly stateService: FrontendApplicationStateService;
 
     constructor(
         @inject(ElectronMainMenuFactory) protected readonly factory: ElectronMainMenuFactory
     ) { }
 
     onStart(app: FrontendApplication): void {
+        this.hideTopPanel(app);
+        this.setMenu();
+        if (isOSX) {
+            // OSX: Recreate the menus when changing windows.
+            // OSX only has one menu bar for all windows, so we need to swap
+            // between them as the user switches windows.
+            electron.remote.getCurrentWindow().on('focus', () => this.setMenu());
+        }
+        // Make sure the application menu is complete, once the frontend application is ready.
+        // https://github.com/theia-ide/theia/issues/5100
+        let onStateChange: Disposable | undefined = undefined;
+        const stateServiceListener = (state: FrontendApplicationState) => {
+            if (state === 'ready') {
+                this.setMenu();
+            }
+            if (state === 'closing_window') {
+                if (!!onStateChange) {
+                    onStateChange.dispose();
+                }
+            }
+        };
+        onStateChange = this.stateService.onStateChanged(stateServiceListener);
+    }
+
+    /**
+     * Makes the `theia-top-panel` hidden as it is unused for the electron-based application.
+     * The `theia-top-panel` is used as the container of the main, application menu-bar for the
+     * browser. Electron has it's own.
+     * By default, this method is called on application `onStart`.
+     */
+    protected hideTopPanel(app: FrontendApplication): void {
         const itr = app.shell.children();
         let child = itr.next();
         while (child) {
             // Top panel for the menu contribution is not required for Electron.
-            // TODO: Make sure this is the case on Windows too.
             if (child.id === 'theia-top-panel') {
                 child.setHidden(true);
                 child = undefined;
@@ -67,10 +118,21 @@ export class ElectronMenuContribution implements FrontendApplicationContribution
                 child = itr.next();
             }
         }
-        electron.remote.Menu.setApplicationMenu(this.factory.createMenuBar());
+    }
+
+    private setMenu(menu: electron.Menu = this.factory.createMenuBar(), electronWindow: electron.BrowserWindow = electron.remote.getCurrentWindow()): void {
+        if (isOSX) {
+            electron.remote.Menu.setApplicationMenu(menu);
+        } else {
+            // Unix/Windows: Set the per-window menus
+            electronWindow.setMenu(menu);
+        }
     }
 
     registerCommands(registry: CommandRegistry): void {
+
+        const currentWindow = electron.remote.getCurrentWindow();
+
         registry.registerCommand(ElectronCommands.TOGGLE_DEVELOPER_TOOLS, {
             execute: () => {
                 const webContent = electron.remote.getCurrentWebContents();
@@ -83,71 +145,63 @@ export class ElectronMenuContribution implements FrontendApplicationContribution
         });
 
         registry.registerCommand(ElectronCommands.RELOAD, {
-            execute: () => {
-                const focusedWindow = electron.remote.getCurrentWindow();
-                if (focusedWindow) {
-                    focusedWindow.reload();
-                }
-            }
+            execute: () => currentWindow.reload()
         });
+        registry.registerCommand(ElectronCommands.CLOSE_WINDOW, {
+            execute: () => currentWindow.close()
+        });
+
         registry.registerCommand(ElectronCommands.ZOOM_IN, {
             execute: () => {
-                const focusedWindow = electron.remote.getCurrentWindow();
-                if (focusedWindow) {
-                    const webContents = focusedWindow.webContents;
-                    webContents.getZoomLevel(zoomLevel =>
-                        webContents.setZoomLevel(zoomLevel + 0.5)
-                    );
-                }
+                const webContents = currentWindow.webContents;
+                webContents.getZoomLevel(zoomLevel =>
+                    webContents.setZoomLevel(zoomLevel + 0.5)
+                );
             }
         });
         registry.registerCommand(ElectronCommands.ZOOM_OUT, {
             execute: () => {
-                const focusedWindow = electron.remote.getCurrentWindow();
-                if (focusedWindow) {
-                    const webContents = focusedWindow.webContents;
-                    webContents.getZoomLevel(zoomLevel =>
-                        webContents.setZoomLevel(zoomLevel - 0.5)
-                    );
-                }
+                const webContents = currentWindow.webContents;
+                webContents.getZoomLevel(zoomLevel =>
+                    webContents.setZoomLevel(zoomLevel - 0.5)
+                );
             }
         });
         registry.registerCommand(ElectronCommands.RESET_ZOOM, {
-            execute: () => {
-                const focusedWindow = electron.remote.getCurrentWindow();
-                if (focusedWindow) {
-                    focusedWindow.webContents.setZoomLevel(0);
-                }
-            }
+            execute: () => currentWindow.webContents.setZoomLevel(0)
         });
     }
 
     registerKeybindings(registry: KeybindingRegistry): void {
-        registry.registerKeybinding({
-            command: ElectronCommands.TOGGLE_DEVELOPER_TOOLS.id,
-            keybinding: "ctrlcmd+shift+i"
-        });
-
-        registry.registerKeybinding({
-            command: ElectronCommands.RELOAD.id,
-            keybinding: "ctrlcmd+r"
-        });
-
-        registry.registerKeybinding({
-            command: ElectronCommands.ZOOM_IN.id,
-            keybinding: "ctrlcmd+="
-        });
-        registry.registerKeybinding({
-            command: ElectronCommands.ZOOM_OUT.id,
-            keybinding: "ctrlcmd+-"
-        });
-        registry.registerKeybinding({
-            command: ElectronCommands.RESET_ZOOM.id,
-            keybinding: "ctrlcmd+0"
-        });
+        registry.registerKeybindings(
+            {
+                command: ElectronCommands.TOGGLE_DEVELOPER_TOOLS.id,
+                keybinding: 'ctrlcmd+alt+i'
+            },
+            {
+                command: ElectronCommands.RELOAD.id,
+                keybinding: 'ctrlcmd+r'
+            },
+            {
+                command: ElectronCommands.ZOOM_IN.id,
+                keybinding: 'ctrlcmd+='
+            },
+            {
+                command: ElectronCommands.ZOOM_OUT.id,
+                keybinding: 'ctrlcmd+-'
+            },
+            {
+                command: ElectronCommands.RESET_ZOOM.id,
+                keybinding: 'ctrlcmd+0'
+            },
+            {
+                command: ElectronCommands.CLOSE_WINDOW.id,
+                keybinding: 'ctrlcmd+shift+w'
+            }
+        );
     }
 
-    registerMenus(registry: MenuModelRegistry) {
+    registerMenus(registry: MenuModelRegistry): void {
         registry.registerMenuAction(ElectronMenus.HELP_TOGGLE, {
             commandId: ElectronCommands.TOGGLE_DEVELOPER_TOOLS.id
         });
@@ -168,6 +222,9 @@ export class ElectronMenuContribution implements FrontendApplicationContribution
         registry.registerMenuAction(ElectronMenus.VIEW_ZOOM, {
             commandId: ElectronCommands.RESET_ZOOM.id,
             order: 'z3'
+        });
+        registry.registerMenuAction(ElectronMenus.FILE_CLOSE, {
+            commandId: ElectronCommands.CLOSE_WINDOW.id,
         });
     }
 

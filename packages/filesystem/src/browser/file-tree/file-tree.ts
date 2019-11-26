@@ -1,56 +1,97 @@
-/*
+/********************************************************************************
  * Copyright (C) 2017 TypeFox and others.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
- */
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v. 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0.
+ *
+ * This Source Code may also be made available under the following Secondary
+ * Licenses when the conditions for such availability set forth in the Eclipse
+ * Public License v. 2.0 are satisfied: GNU General Public License, version 2
+ * with the GNU Classpath Exception which is available at
+ * https://www.gnu.org/software/classpath/license.html.
+ *
+ * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
+ ********************************************************************************/
 
-import { injectable, inject } from "inversify";
+import { injectable, inject, postConstruct } from 'inversify';
 import URI from '@theia/core/lib/common/uri';
-import { ITreeNode, ICompositeTreeNode, ISelectableTreeNode, IExpandableTreeNode, Tree } from "@theia/core/lib/browser";
-import { FileSystem, FileStat, UriSelection } from "../../common";
-import { LabelProvider } from "@theia/core/lib/browser/label-provider";
+import { TreeNode, CompositeTreeNode, SelectableTreeNode, ExpandableTreeNode, TreeImpl } from '@theia/core/lib/browser';
+import { FileSystem, FileStat } from '../../common';
+import { LabelProvider, DidChangeLabelEvent } from '@theia/core/lib/browser/label-provider';
+import { UriSelection } from '@theia/core/lib/common/selection';
+import { FileSelection } from '../file-selection';
 
 @injectable()
-export class FileTree extends Tree {
+export class FileTree extends TreeImpl {
 
+    @inject(FileSystem) protected readonly fileSystem: FileSystem;
     @inject(LabelProvider) protected readonly labelProvider: LabelProvider;
 
-    constructor(
-        @inject(FileSystem) protected readonly fileSystem: FileSystem) {
-        super();
+    @postConstruct()
+    protected initFileTree(): void {
+        this.toDispose.push(
+            this.labelProvider.onDidChange((event: DidChangeLabelEvent) => this.doUpdateElement(event))
+        );
     }
 
-    async resolveChildren(parent: ICompositeTreeNode): Promise<ITreeNode[]> {
+    protected async doUpdateElement(event: DidChangeLabelEvent): Promise<void> {
+        let isAnyAffectedNodes = false;
+        for (const nodeId of Object.keys(this.nodes)) {
+            const mutableNode = this.nodes[nodeId];
+
+            const nodeWithPossibleUri = mutableNode;
+            if (mutableNode && FileStatNode.is(nodeWithPossibleUri)) {
+                const uri = nodeWithPossibleUri.uri;
+                if (event.affects(uri)) {
+                    mutableNode.name = this.labelProvider.getName(uri);
+                    mutableNode.description = this.labelProvider.getLongName(uri);
+                    mutableNode.icon = await this.labelProvider.getIcon(uri);
+                    isAnyAffectedNodes = true;
+                }
+            }
+        }
+        if (isAnyAffectedNodes) {
+            this.fireChanged();
+        }
+    }
+
+    async resolveChildren(parent: CompositeTreeNode): Promise<TreeNode[]> {
         if (FileStatNode.is(parent)) {
             const fileStat = await this.resolveFileStat(parent);
-            return this.toNodes(fileStat, parent);
+            if (fileStat) {
+                return this.toNodes(fileStat, parent);
+            }
+            return [];
         }
         return super.resolveChildren(parent);
     }
 
-    protected resolveFileStat(node: FileStatNode): Promise<FileStat> {
+    protected resolveFileStat(node: FileStatNode): Promise<FileStat | undefined> {
         return this.fileSystem.getFileStat(node.fileStat.uri).then(fileStat => {
-            node.fileStat = fileStat;
-            return fileStat;
+            if (fileStat) {
+                node.fileStat = fileStat;
+                return fileStat;
+            }
+            return undefined;
         });
     }
 
-    protected async toNodes(fileStat: FileStat, parent: ICompositeTreeNode): Promise<ITreeNode[]> {
+    protected async toNodes(fileStat: FileStat, parent: CompositeTreeNode): Promise<TreeNode[]> {
         if (!fileStat.children) {
             return [];
         }
         const result = await Promise.all(fileStat.children.map(async child =>
-            await this.toNode(child, parent)
+            this.toNode(child, parent)
         ));
         return result.sort(DirNode.compare);
     }
 
-    protected async toNode(fileStat: FileStat, parent: ICompositeTreeNode): Promise<FileNode | DirNode> {
+    protected async toNode(fileStat: FileStat, parent: CompositeTreeNode): Promise<FileNode | DirNode> {
         const uri = new URI(fileStat.uri);
-        const name = await this.labelProvider.getName(uri);
+        const name = this.labelProvider.getName(uri);
         const icon = await this.labelProvider.getIcon(fileStat);
-        const id = fileStat.uri;
+        const id = this.toNodeId(uri, parent);
         const node = this.getNode(id);
         if (fileStat.isDirectory) {
             if (DirNode.is(node)) {
@@ -74,35 +115,44 @@ export class FileTree extends Tree {
         };
     }
 
+    protected toNodeId(uri: URI, parent: CompositeTreeNode): string {
+        return uri.path.toString();
+    }
 }
 
-export interface FileStatNode extends ISelectableTreeNode, UriSelection {
-    fileStat: FileStat;
+export interface FileStatNode extends SelectableTreeNode, UriSelection, FileSelection {
 }
 export namespace FileStatNode {
-    export function is(node: ITreeNode | undefined): node is FileStatNode {
+    export function is(node: object | undefined): node is FileStatNode {
         return !!node && 'fileStat' in node;
+    }
+
+    export function getUri(node: TreeNode | undefined): string | undefined {
+        if (is(node)) {
+            return node.fileStat.uri;
+        }
+        return undefined;
     }
 }
 
 export type FileNode = FileStatNode;
 export namespace FileNode {
-    export function is(node: ITreeNode | undefined): node is FileNode {
+    export function is(node: TreeNode | undefined): node is FileNode {
         return FileStatNode.is(node) && !node.fileStat.isDirectory;
     }
 }
 
-export type DirNode = FileStatNode & IExpandableTreeNode;
+export type DirNode = FileStatNode & ExpandableTreeNode;
 export namespace DirNode {
-    export function is(node: ITreeNode | undefined): node is DirNode {
+    export function is(node: TreeNode | undefined): node is DirNode {
         return FileStatNode.is(node) && node.fileStat.isDirectory;
     }
 
-    export function compare(node: ITreeNode, node2: ITreeNode): number {
+    export function compare(node: TreeNode, node2: TreeNode): number {
         return DirNode.dirCompare(node, node2) || node.name.localeCompare(node2.name);
     }
 
-    export function dirCompare(node: ITreeNode, node2: ITreeNode): number {
+    export function dirCompare(node: TreeNode, node2: TreeNode): number {
         const a = DirNode.is(node) ? 1 : 0;
         const b = DirNode.is(node2) ? 1 : 0;
         return b - a;
@@ -123,7 +173,7 @@ export namespace DirNode {
         };
     }
 
-    export function getContainingDir(node: ITreeNode | undefined): DirNode | undefined {
+    export function getContainingDir(node: TreeNode | undefined): DirNode | undefined {
         let containing = node;
         while (!!containing && !is(containing)) {
             containing = containing.parent;

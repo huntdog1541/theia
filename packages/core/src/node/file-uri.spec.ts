@@ -1,27 +1,37 @@
-/*
+/********************************************************************************
  * Copyright (C) 2017 TypeFox and others.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
- */
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v. 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0.
+ *
+ * This Source Code may also be made available under the following Secondary
+ * Licenses when the conditions for such availability set forth in the Eclipse
+ * Public License v. 2.0 are satisfied: GNU General Public License, version 2
+ * with the GNU Classpath Exception which is available at
+ * https://www.gnu.org/software/classpath/license.html.
+ *
+ * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
+ ********************************************************************************/
 
-import * as os from "os";
-import * as path from "path";
-import * as chai from "chai";
-import { FileUri } from "./file-uri";
+import * as os from 'os';
+import * as path from 'path';
+import * as chai from 'chai';
+import { FileUri } from './file-uri';
+import { isWindows } from '../common/os';
 
 const expect = chai.expect;
 
-describe("file-uri", () => {
+describe('file-uri', () => {
 
-    const filePaths: string[] = ["with.txt", "with spaces.txt", "with:colon.txt", "with_Ö.txt"].map(filePath => path.join(os.tmpdir(), "file-uri-folder", filePath));
+    const filePaths: string[] = ['with.txt', 'with spaces.txt', 'with:colon.txt', 'with_Ö.txt'].map(filePath => path.join(os.tmpdir(), 'file-uri-folder', filePath));
 
-    it("create -> fsPath -> create should be symmetric", () => {
+    it('create -> fsPath -> create should be symmetric', () => {
         const orderedPaths = filePaths.map(filePath => filePath.toLowerCase()).sort();
         expect(orderedPaths.map(filePath => FileUri.create(filePath)).map(uri => FileUri.fsPath(uri).toLowerCase()).sort()).to.be.deep.equal(orderedPaths);
     });
 
-    it("fsPath -> create -> fsPath should be symmetric", () => {
+    it('fsPath -> create -> fsPath should be symmetric', () => {
         filePaths.forEach(filePath => {
             const expectedUri = FileUri.create(filePath);
             const convertedPath = FileUri.fsPath(expectedUri);
@@ -55,4 +65,12 @@ describe("file-uri", () => {
         expect(uri.toString(true)).to.be.equal('file:///c:/');
     });
 
+    it('from file:///c%3A', function (): void {
+        if (!isWindows) {
+            this.skip();
+            return;
+        }
+        const fsPath = FileUri.fsPath('file:///c%3A');
+        expect(fsPath).to.be.equal('c:\\');
+    });
 });

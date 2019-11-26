@@ -1,9 +1,18 @@
-/*
+/********************************************************************************
  * Copyright (C) 2017 TypeFox and others.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
- */
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v. 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0.
+ *
+ * This Source Code may also be made available under the following Secondary
+ * Licenses when the conditions for such availability set forth in the Eclipse
+ * Public License v. 2.0 are satisfied: GNU General Public License, version 2
+ * with the GNU Classpath Exception which is available at
+ * https://www.gnu.org/software/classpath/license.html.
+ *
+ * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
+ ********************************************************************************/
 
 import { injectable, inject } from 'inversify';
 import { LabelProviderContribution, LabelProvider } from '@theia/core/lib/browser/label-provider';
@@ -14,7 +23,7 @@ import { MaybePromise } from '@theia/core';
 @injectable()
 export class GitUriLabelProviderContribution implements LabelProviderContribution {
 
-    constructor( @inject(LabelProvider) protected labelProvider: LabelProvider) {
+    constructor(@inject(LabelProvider) protected labelProvider: LabelProvider) {
     }
 
     canHandle(element: object): number {
@@ -25,7 +34,7 @@ export class GitUriLabelProviderContribution implements LabelProviderContributio
     }
 
     getLongName(uri: URI): string {
-        return this.labelProvider.getLongName(this.toFileUri(uri).withoutQuery());
+        return this.labelProvider.getLongName(this.toFileUri(uri).withoutQuery().withoutFragment());
     }
 
     getName(uri: URI): string {
@@ -36,15 +45,23 @@ export class GitUriLabelProviderContribution implements LabelProviderContributio
         return this.labelProvider.getIcon(this.toFileUri(uri));
     }
 
-    protected toFileUri(uri: URI) {
+    getConstituentUris(element: URI): URI[] {
+        const fileUri = this.toFileUri(element);
+        return [
+            fileUri,
+            fileUri.withoutQuery().withoutFragment(),
+        ];
+    }
+
+    protected toFileUri(uri: URI): URI {
         return uri.withScheme('file');
     }
 
-    protected getTagSuffix(uri: URI) {
+    protected getTagSuffix(uri: URI): string {
         if (uri.query) {
             return ` (${uri.query})`;
         } else {
-            return "";
+            return '';
         }
     }
 }

@@ -1,17 +1,27 @@
-/*
+/********************************************************************************
  * Copyright (C) 2017 TypeFox and others.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
- */
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v. 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0.
+ *
+ * This Source Code may also be made available under the following Secondary
+ * Licenses when the conditions for such availability set forth in the Eclipse
+ * Public License v. 2.0 are satisfied: GNU General Public License, version 2
+ * with the GNU Classpath Exception which is available at
+ * https://www.gnu.org/software/classpath/license.html.
+ *
+ * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
+ ********************************************************************************/
 
-import { injectable } from "inversify";
-import { Tree, ICompositeTreeNode, ITreeNode, ISelectableTreeNode, IExpandableTreeNode } from "@theia/core/lib/browser";
+import { injectable } from 'inversify';
+import { TreeImpl, CompositeTreeNode, TreeNode, SelectableTreeNode, ExpandableTreeNode } from '@theia/core/lib/browser';
 import { MarkerManager } from './marker-manager';
 import { Marker } from '../common/marker';
-import { UriSelection } from "@theia/filesystem/lib/common";
-import URI from "@theia/core/lib/common/uri";
-import { LabelProvider } from "@theia/core/lib/browser/label-provider";
+import { UriSelection } from '@theia/core/lib/common/selection';
+import URI from '@theia/core/lib/common/uri';
+import { LabelProvider } from '@theia/core/lib/browser/label-provider';
+import { ProblemSelection } from './problem/problem-selection';
 
 export const MarkerOptions = Symbol('MarkerOptions');
 export interface MarkerOptions {
@@ -19,7 +29,7 @@ export interface MarkerOptions {
 }
 
 @injectable()
-export abstract class MarkerTree<T extends object> extends Tree {
+export abstract class MarkerTree<T extends object> extends TreeImpl {
 
     constructor(
         protected readonly markerManager: MarkerManager<T>,
@@ -28,7 +38,25 @@ export abstract class MarkerTree<T extends object> extends Tree {
     ) {
         super();
 
-        markerManager.onDidChangeMarkers(() => this.refresh());
+        this.toDispose.push(markerManager.onDidChangeMarkers(uri => this.refreshMarkerInfo(uri)));
+        this.toDispose.push(labelProvider.onDidChange(async event => {
+            let isAnyAffectedNodes = false;
+            for (const nodeId of Object.keys(this.nodes)) {
+                const node = this.nodes[nodeId];
+                const markerInfoNode = node;
+                if (node && MarkerInfoNode.is(markerInfoNode)) {
+                    const uri = markerInfoNode.uri;
+                    if (event.affects(uri)) {
+                        node.name = this.labelProvider.getName(uri);
+                        node.icon = await this.labelProvider.getIcon(uri);
+                        isAnyAffectedNodes = true;
+                    }
+                }
+            }
+            if (isAnyAffectedNodes) {
+                this.fireChanged();
+            }
+        }));
 
         this.root = <MarkerRootNode>{
             visible: false,
@@ -40,100 +68,107 @@ export abstract class MarkerTree<T extends object> extends Tree {
         };
     }
 
-    resolveChildren(parent: ICompositeTreeNode): Promise<ITreeNode[]> {
+    protected async refreshMarkerInfo(uri: URI): Promise<void> {
+        const id = uri.toString();
+        const existing = this.getNode(id);
+        const markers = this.markerManager.findMarkers({ uri });
+        if (markers.length <= 0) {
+            if (MarkerInfoNode.is(existing)) {
+                CompositeTreeNode.removeChild(existing.parent, existing);
+                this.removeNode(existing);
+                this.fireChanged();
+            }
+            return;
+        }
+        const node = MarkerInfoNode.is(existing) ? existing : await this.createMarkerInfo(id, uri);
+        CompositeTreeNode.addChild(node.parent, node);
+        const children = this.getMarkerNodes(node, markers);
+        node.numberOfMarkers = markers.length;
+        this.setChildren(node, children);
+    }
+
+    protected async resolveChildren(parent: CompositeTreeNode): Promise<TreeNode[]> {
         if (MarkerRootNode.is(parent)) {
-            return this.getMarkerInfoNodes((parent as MarkerRootNode));
-        } else if (MarkerInfoNode.is(parent)) {
-            return this.getMarkerNodes(parent);
+            const nodes: MarkerInfoNode[] = [];
+            for (const id of this.markerManager.getUris()) {
+                const uri = new URI(id);
+                const existing = this.getNode(id);
+                const markers = this.markerManager.findMarkers({ uri });
+                const node = MarkerInfoNode.is(existing) ? existing : await this.createMarkerInfo(id, uri);
+                node.children = this.getMarkerNodes(node, markers);
+                node.numberOfMarkers = node.children.length;
+                nodes.push(node);
+            }
+            return nodes;
         }
         return super.resolveChildren(parent);
     }
 
-    async getMarkerInfoNodes(parent: MarkerRootNode): Promise<MarkerInfoNode[]> {
-        const uriNodes: MarkerInfoNode[] = [];
-        if (this.root && MarkerRootNode.is(this.root)) {
-            for (const uriString of this.markerManager.getUris()) {
-                const id = 'markerInfo-' + uriString;
-                const uri = new URI(uriString);
-                const label = await this.labelProvider.getName(uri);
-                const icon = await this.labelProvider.getIcon(uri);
-                const description = await this.labelProvider.getLongName(uri.parent);
-                const numberOfMarkers = this.markerManager.findMarkers({ uri }).length;
-                if (numberOfMarkers > 0) {
-                    const cachedMarkerInfo = this.getNode(id);
-                    if (cachedMarkerInfo && MarkerInfoNode.is(cachedMarkerInfo)) {
-                        cachedMarkerInfo.numberOfMarkers = numberOfMarkers;
-                        uriNodes.push(cachedMarkerInfo);
-                    } else {
-                        uriNodes.push({
-                            children: [],
-                            expanded: true,
-                            uri,
-                            id,
-                            name: label,
-                            icon,
-                            description,
-                            parent,
-                            selected: false,
-                            numberOfMarkers
-                        });
-                    }
-                }
-            }
-        }
-        return Promise.resolve(uriNodes);
+    protected async createMarkerInfo(id: string, uri: URI): Promise<MarkerInfoNode> {
+        const label = await this.labelProvider.getName(uri);
+        const icon = await this.labelProvider.getIcon(uri);
+        const description = await this.labelProvider.getLongName(uri.parent);
+        return {
+            children: [],
+            expanded: true,
+            uri,
+            id,
+            name: label,
+            icon,
+            description,
+            parent: this.root as MarkerRootNode,
+            selected: false,
+            numberOfMarkers: 0
+        };
     }
 
-    getMarkerNodes(parent: MarkerInfoNode): Promise<MarkerNode[]> {
-        const markerNodes: MarkerNode[] = [];
-        const markers = this.markerManager.findMarkers({ uri: parent.uri });
-        for (let i = 0; i < markers.length; i++) {
-            const marker = markers[i];
-            const uri = new URI(marker.uri);
-            const id = uri.toString() + "_" + i;
-            const cachedMarkerNode = this.getNode(id);
-            if (MarkerNode.is(cachedMarkerNode)) {
-                cachedMarkerNode.marker = marker;
-                markerNodes.push(cachedMarkerNode);
-            } else {
-                markerNodes.push({
-                    id,
-                    name: 'marker',
-                    parent,
-                    selected: false,
-                    uri,
-                    marker
-                });
-            }
+    protected getMarkerNodes(parent: MarkerInfoNode, markers: Marker<T>[]): MarkerNode[] {
+        return markers.map((marker, index) =>
+            this.createMarkerNode(marker, index, parent)
+        );
+    }
+    protected createMarkerNode(marker: Marker<T>, index: number, parent: MarkerInfoNode): MarkerNode {
+        const id = parent.id + '_' + index;
+        const existing = this.getNode(id);
+        if (MarkerNode.is(existing)) {
+            existing.marker = marker;
+            return existing;
         }
-        return Promise.resolve(markerNodes);
+        return {
+            id,
+            name: 'marker',
+            parent,
+            selected: false,
+            uri: parent.uri,
+            marker
+        };
     }
 }
 
-export interface MarkerNode extends UriSelection, ISelectableTreeNode {
+export interface MarkerNode extends UriSelection, SelectableTreeNode, ProblemSelection {
     marker: Marker<object>;
 }
 export namespace MarkerNode {
-    export function is(node: ITreeNode | undefined): node is MarkerNode {
-        return UriSelection.is(node) && ISelectableTreeNode.is(node) && 'marker' in node;
+    export function is(node: TreeNode | undefined): node is MarkerNode {
+        return UriSelection.is(node) && SelectableTreeNode.is(node) && ProblemSelection.is(node);
     }
 }
 
-export interface MarkerInfoNode extends UriSelection, ISelectableTreeNode, IExpandableTreeNode {
+export interface MarkerInfoNode extends UriSelection, SelectableTreeNode, ExpandableTreeNode {
     parent: MarkerRootNode;
     numberOfMarkers: number;
 }
 export namespace MarkerInfoNode {
-    export function is(node: ITreeNode | undefined): node is MarkerInfoNode {
-        return IExpandableTreeNode.is(node) && UriSelection.is(node);
+    export function is(node: TreeNode | undefined): node is MarkerInfoNode {
+        return ExpandableTreeNode.is(node) && UriSelection.is(node);
     }
 }
 
-export interface MarkerRootNode extends ICompositeTreeNode {
+export interface MarkerRootNode extends CompositeTreeNode {
     kind: string;
 }
 export namespace MarkerRootNode {
-    export function is(node: ITreeNode | undefined): node is MarkerRootNode {
-        return ICompositeTreeNode.is(node) && 'kind' in node;
+    export function is(node: TreeNode | undefined): node is MarkerRootNode {
+        return CompositeTreeNode.is(node) && 'kind' in node;
     }
 }

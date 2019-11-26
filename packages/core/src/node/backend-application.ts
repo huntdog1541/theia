@@ -1,26 +1,38 @@
-/*
+/********************************************************************************
  * Copyright (C) 2017 TypeFox and others.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
- */
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v. 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0.
+ *
+ * This Source Code may also be made available under the following Secondary
+ * Licenses when the conditions for such availability set forth in the Eclipse
+ * Public License v. 2.0 are satisfied: GNU General Public License, version 2
+ * with the GNU Classpath Exception which is available at
+ * https://www.gnu.org/software/classpath/license.html.
+ *
+ * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
+ ********************************************************************************/
 
+import * as path from 'path';
 import * as http from 'http';
 import * as https from 'https';
 import * as express from 'express';
 import * as yargs from 'yargs';
-import { inject, named, injectable } from "inversify";
-import { ILogger, ContributionProvider } from '../common';
+import * as fs from 'fs-extra';
+import { inject, named, injectable, postConstruct } from 'inversify';
+import { ILogger, ContributionProvider, MaybePromise } from '../common';
 import { CliContribution } from './cli';
 import { Deferred } from '../common/promise-util';
-import { BackendProcess } from './backend-process';
-import * as fs from "fs-extra";
+import { environment } from '../common/index';
+import { AddressInfo } from 'net';
+import { ApplicationPackage } from '@theia/application-package';
 
-export const BackendApplicationContribution = Symbol("BackendApplicationContribution");
+export const BackendApplicationContribution = Symbol('BackendApplicationContribution');
 export interface BackendApplicationContribution {
     initialize?(): void;
     configure?(app: express.Application): void;
-    onStart?(server: http.Server | https.Server): void;
+    onStart?(server: http.Server | https.Server): MaybePromise<void>;
 
     /**
      * Called when the backend application shuts down. Contributions must perform only synchronous operations.
@@ -29,9 +41,11 @@ export interface BackendApplicationContribution {
     onStop?(app?: express.Application): void;
 }
 
-const defaultPort = BackendProcess.electron ? 0 : 3000;
+const defaultPort = environment.electron.is() ? 0 : 3000;
 const defaultHost = 'localhost';
 const defaultSSL = false;
+
+const appProjectPath = 'app-project-path';
 
 @injectable()
 export class BackendApplicationCliContribution implements CliContribution {
@@ -41,13 +55,15 @@ export class BackendApplicationCliContribution implements CliContribution {
     ssl: boolean | undefined;
     cert: string | undefined;
     certkey: string | undefined;
+    projectPath: string;
 
     configure(conf: yargs.Argv): void {
-        yargs.option('port', { alias: 'p', description: 'The port the backend server listens on.', type: 'number', default: defaultPort });
-        yargs.option('hostname', { description: 'The allowed hostname for connections.', type: 'string', default: defaultHost });
-        yargs.option('ssl', { description: 'Use SSL (HTTPS), cert and certkey must also be set', type: 'boolean', default: defaultSSL });
-        yargs.option('cert', { description: 'Path to SSL certificate.', type: 'string' });
-        yargs.option('certkey', { description: 'Path to SSL certificate key.', type: 'string' });
+        conf.option('port', { alias: 'p', description: 'The port the backend server listens on.', type: 'number', default: defaultPort });
+        conf.option('hostname', { alias: 'h', description: 'The allowed hostname for connections.', type: 'string', default: defaultHost });
+        conf.option('ssl', { description: 'Use SSL (HTTPS), cert and certkey must also be set', type: 'boolean', default: defaultSSL });
+        conf.option('cert', { description: 'Path to SSL certificate.', type: 'string' });
+        conf.option('certkey', { description: 'Path to SSL certificate key.', type: 'string' });
+        conf.option(appProjectPath, { description: 'Sets the application project directory', default: this.appProjectPath() });
     }
 
     setArguments(args: yargs.Arguments): void {
@@ -56,7 +72,19 @@ export class BackendApplicationCliContribution implements CliContribution {
         this.ssl = args.ssl;
         this.cert = args.cert;
         this.certkey = args.certkey;
+        this.projectPath = args[appProjectPath];
     }
+
+    protected appProjectPath(): string {
+        if (environment.electron.is()) {
+            if (process.env.THEIA_APP_PROJECT_PATH) {
+                return process.env.THEIA_APP_PROJECT_PATH;
+            }
+            throw new Error('The \'THEIA_APP_PROJECT_PATH\' environment variable must be set when running in electron.');
+        }
+        return process.cwd();
+    }
+
 }
 
 /**
@@ -66,6 +94,9 @@ export class BackendApplicationCliContribution implements CliContribution {
 export class BackendApplication {
 
     protected readonly app: express.Application = express();
+
+    @inject(ApplicationPackage)
+    protected readonly applicationPackage: ApplicationPackage;
 
     constructor(
         @inject(ContributionProvider) @named(BackendApplicationContribution)
@@ -93,18 +124,29 @@ export class BackendApplication {
             if (contribution.initialize) {
                 try {
                     contribution.initialize();
-                } catch (err) {
-                    this.logger.error(err.toString());
+                } catch (error) {
+                    this.logger.error('Could not initialize contribution', error);
                 }
             }
         }
+    }
+
+    @postConstruct()
+    protected init(): void {
+        this.app.get('*.js', this.serveGzipped.bind(this, 'text/javascript'));
+        this.app.get('*.js.map', this.serveGzipped.bind(this, 'application/json'));
+        this.app.get('*.css', this.serveGzipped.bind(this, 'text/css'));
+        this.app.get('*.wasm', this.serveGzipped.bind(this, 'application/wasm'));
+        this.app.get('*.gif', this.serveGzipped.bind(this, 'image/gif'));
+        this.app.get('*.png', this.serveGzipped.bind(this, 'image/png'));
+        this.app.get('*.svg', this.serveGzipped.bind(this, 'image/svg+xml'));
 
         for (const contribution of this.contributionsProvider.getContributions()) {
             if (contribution.configure) {
                 try {
                     contribution.configure(this.app);
-                } catch (err) {
-                    this.logger.error(err.toString());
+                } catch (error) {
+                    this.logger.error('Could not configure contribution', error);
                 }
             }
         }
@@ -115,34 +157,35 @@ export class BackendApplication {
     }
 
     async start(aPort?: number, aHostname?: string): Promise<http.Server | https.Server> {
+        const hostname = aHostname !== undefined ? aHostname : this.cliParams.hostname;
+        const port = aPort !== undefined ? aPort : this.cliParams.port;
+
         const deferred = new Deferred<http.Server | https.Server>();
         let server: http.Server | https.Server;
-        const port = aPort !== undefined ? aPort : this.cliParams.port;
-        const hostname = aHostname !== undefined ? aHostname : this.cliParams.hostname;
 
         if (this.cliParams.ssl) {
 
             if (this.cliParams.cert === undefined) {
-                throw new Error("Missing --cert option, see --help for usage");
+                throw new Error('Missing --cert option, see --help for usage');
             }
 
             if (this.cliParams.certkey === undefined) {
-                throw new Error("Missing --certkey option, see --help for usage");
+                throw new Error('Missing --certkey option, see --help for usage');
             }
 
-            let key;
-            let cert;
+            let key: Buffer;
+            let cert: Buffer;
             try {
                 key = await fs.readFile(this.cliParams.certkey as string);
             } catch (err) {
-                await this.logger.error(`Can't read certificate key`);
+                await this.logger.error("Can't read certificate key");
                 throw err;
             }
 
             try {
                 cert = await fs.readFile(this.cliParams.cert as string);
             } catch (err) {
-                await this.logger.error(`Can't read certificate`);
+                await this.logger.error("Can't read certificate");
                 throw err;
             }
             server = https.createServer({ key, cert }, this.app);
@@ -150,9 +193,16 @@ export class BackendApplication {
             server = http.createServer(this.app);
         }
 
+        server.on('error', error => {
+            deferred.reject(error);
+            /* The backend might run in a separate process,
+             * so we defer `process.exit` to let time for logging in the parent process */
+            setTimeout(process.exit, 0, 1);
+        });
+
         server.listen(port, hostname, () => {
             const scheme = this.cliParams.ssl ? 'https' : 'http';
-            this.logger.info(`Theia app listening on ${scheme}://${hostname || 'localhost'}:${server.address().port}.`);
+            this.logger.info(`Theia app listening on ${scheme}://${hostname || 'localhost'}:${(server.address() as AddressInfo).port}.`);
             deferred.resolve(server);
         });
 
@@ -162,25 +212,43 @@ export class BackendApplication {
         for (const contrib of this.contributionsProvider.getContributions()) {
             if (contrib.onStart) {
                 try {
-                    contrib.onStart(server);
-                } catch (err) {
-                    this.logger.error(err.toString());
+                    await contrib.onStart(server);
+                } catch (error) {
+                    this.logger.error('Could not start contribution', error);
                 }
             }
         }
         return deferred.promise;
     }
 
-    private onStop(): void {
+    protected onStop(): void {
         for (const contrib of this.contributionsProvider.getContributions()) {
             if (contrib.onStop) {
                 try {
                     contrib.onStop(this.app);
-                } catch (err) {
-                    this.logger.error(err);
+                } catch (error) {
+                    this.logger.error('Could not stop contribution', error);
                 }
             }
         }
+    }
+
+    protected async serveGzipped(contentType: string, req: express.Request, res: express.Response, next: express.NextFunction): Promise<void> {
+        const acceptedEncodings = req.acceptsEncodings();
+
+        const gzUrl = `${req.url}.gz`;
+        const gzPath = path.join(this.applicationPackage.projectPath, 'lib', gzUrl);
+        if (acceptedEncodings.indexOf('gzip') === -1 || !(await fs.pathExists(gzPath))) {
+            next();
+            return;
+        }
+
+        req.url = gzUrl;
+
+        res.set('Content-Encoding', 'gzip');
+        res.set('Content-Type', contentType);
+
+        next();
     }
 
 }

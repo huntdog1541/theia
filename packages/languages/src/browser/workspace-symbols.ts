@@ -1,41 +1,66 @@
-/*
+/********************************************************************************
  * Copyright (C) 2017 TypeFox and others.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
- */
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v. 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0.
+ *
+ * This Source Code may also be made available under the following Secondary
+ * Licenses when the conditions for such availability set forth in the Eclipse
+ * Public License v. 2.0 are satisfied: GNU General Public License, version 2
+ * with the GNU Classpath Exception which is available at
+ * https://www.gnu.org/software/classpath/license.html.
+ *
+ * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
+ ********************************************************************************/
 
 import { injectable, inject } from 'inversify';
-import { Languages } from '../common';
-import { QuickOpenService, QuickOpenModel, QuickOpenItem, OpenerService, QuickOpenMode } from '@theia/core/lib/browser';
-import { WorkspaceSymbolParams, SymbolInformation } from 'vscode-base-languageclient/lib/base';
+import {
+    PrefixQuickOpenService, QuickOpenModel, QuickOpenItem, OpenerService,
+    QuickOpenMode, KeybindingContribution, KeybindingRegistry, QuickOpenHandler, QuickOpenOptions, QuickOpenContribution, QuickOpenHandlerRegistry
+} from '@theia/core/lib/browser';
+import { Languages, WorkspaceSymbolParams, SymbolInformation, WorkspaceSymbolProvider, CancellationToken } from './language-client-services';
 import { CancellationTokenSource, CommandRegistry, CommandHandler, Command, SelectionService } from '@theia/core';
 import URI from '@theia/core/lib/common/uri';
-import { CommandContribution, KeybindingContribution, KeybindingRegistry } from '@theia/core/lib/common';
-import { Range } from 'vscode-languageserver-types';
+import { CommandContribution } from '@theia/core/lib/common';
+import { Range, Position } from 'vscode-languageserver-types';
 
 @injectable()
-export class WorkspaceSymbolCommand implements QuickOpenModel, CommandContribution, KeybindingContribution, CommandHandler {
+export class WorkspaceSymbolCommand implements QuickOpenModel, CommandContribution, KeybindingContribution, CommandHandler, QuickOpenHandler, QuickOpenContribution {
+
+    readonly prefix = '#';
+    readonly description = 'Go to Symbol in Workspace';
 
     private command: Command = {
         id: 'languages.workspace.symbol',
-        label: 'Open Workspace Symbol ...'
+        label: 'Open Workspace Symbol...'
     };
 
-    constructor( @inject(Languages) protected languages: Languages,
+    constructor(@inject(Languages) protected languages: Languages,
         @inject(OpenerService) protected readonly openerService: OpenerService,
-        @inject(QuickOpenService) protected quickOpenService: QuickOpenService,
+        @inject(PrefixQuickOpenService) protected quickOpenService: PrefixQuickOpenService,
         @inject(SelectionService) protected selectionService: SelectionService) { }
 
-    isEnabled() {
+    isEnabled(): boolean {
         return this.languages.workspaceSymbolProviders !== undefined;
     }
 
-    execute() {
-        this.quickOpenService.open(this, {
-            placeholder: 'Type to search for symbols.',
-            fuzzyMatchLabel: true
-        });
+    execute(): void {
+        this.quickOpenService.open(this.prefix);
+    }
+
+    getModel(): QuickOpenModel {
+        return this;
+    }
+
+    getOptions(): QuickOpenOptions {
+        return {
+            fuzzyMatchLabel: true,
+            showItemsWithoutHighlight: true,
+            onClose: () => {
+                this.cancellationSource.cancel();
+            }
+        };
     }
 
     registerCommands(commands: CommandRegistry): void {
@@ -45,9 +70,12 @@ export class WorkspaceSymbolCommand implements QuickOpenModel, CommandContributi
     registerKeybindings(keybindings: KeybindingRegistry): void {
         keybindings.registerKeybinding({
             command: this.command.id,
-            keybinding: "ctrlcmd+o",
-            accelerator: ['Accel O']
+            keybinding: 'ctrlcmd+o',
         });
+    }
+
+    registerQuickOpenHandlers(handlers: QuickOpenHandlerRegistry): void {
+        handlers.registerHandler(this);
     }
 
     private cancellationSource = new CancellationTokenSource();
@@ -64,33 +92,63 @@ export class WorkspaceSymbolCommand implements QuickOpenModel, CommandContributi
 
             const items: QuickOpenItem[] = [];
 
+            const workspaceProviderPromises = [];
             for (const provider of this.languages.workspaceSymbolProviders) {
-                provider.provideWorkspaceSymbols(param, newCancellationSource.token).then(symbols => {
+                workspaceProviderPromises.push((async () => {
+                    const symbols = await provider.provideWorkspaceSymbols(param, newCancellationSource.token);
                     if (symbols && !newCancellationSource.token.isCancellationRequested) {
                         for (const symbol of symbols) {
-                            items.push(this.createItem(symbol));
+                            items.push(this.createItem(symbol, provider, newCancellationSource.token));
                         }
                         acceptor(items);
                     }
-                });
+                    return symbols;
+                })());
             }
+            Promise.all(workspaceProviderPromises.map(p => p.then(sym => sym, _ => undefined))).then(symbols => {
+                const filteredSymbols = symbols.filter(el => el && el.length !== 0);
+                if (filteredSymbols.length === 0) {
+                    items.push(new QuickOpenItem({
+                        label: lookFor.length === 0 ? 'Type to search for symbols' : 'No symbols matching',
+                        run: () => false
+                    }));
+                    acceptor(items);
+                }
+            }).catch();
         }
     }
 
-    protected createItem(sym: SymbolInformation): QuickOpenItem {
+    protected createItem(sym: SymbolInformation, provider: WorkspaceSymbolProvider, token: CancellationToken): QuickOpenItem {
         const uri = new URI(sym.location.uri);
-        const icon = SymbolKind[sym.kind].toLowerCase();
+        const kind = SymbolKind[sym.kind];
+        const icon = (kind) ? SymbolKind[sym.kind].toLowerCase() : 'unknown';
         let parent = sym.containerName;
         if (parent) {
             parent += ' - ';
         }
         parent = (parent || '') + uri.displayName;
         return new SimpleOpenItem(sym.name, icon, parent, uri.toString(), () => {
-            this.openerService.getOpener(uri).then(opener => opener.open(uri, {
-                revealIfVisible: true,
-                selection: Range.create(sym.location.range.start, sym.location.range.start)
-            }));
+
+            if (provider.resolveWorkspaceSymbol) {
+                provider.resolveWorkspaceSymbol(sym, token).then(resolvedSymbol => {
+                    if (resolvedSymbol) {
+                        this.openURL(uri, resolvedSymbol.location.range.start, resolvedSymbol.location.range.end);
+                    } else {
+                        // the symbol didn't resolve -> use given symbol
+                        this.openURL(uri, sym.location.range.start, sym.location.range.end);
+                    }
+                });
+            } else {
+                // resolveWorkspaceSymbol wasn't specified
+                this.openURL(uri, sym.location.range.start, sym.location.range.end);
+            }
         });
+    }
+
+    private openURL(uri: URI, start: Position, end: Position): void {
+        this.openerService.getOpener(uri).then(opener => opener.open(uri, {
+            selection: Range.create(start, end)
+        }));
     }
 }
 
@@ -158,5 +216,13 @@ enum SymbolKind {
     String = 15,
     Number = 16,
     Boolean = 17,
-    Array = 18
+    Array = 18,
+    Object = 19,
+    Key = 20,
+    Null = 21,
+    EnumMember = 22,
+    Struct = 23,
+    Event = 24,
+    Operator = 25,
+    TypeParameter = 26
 }

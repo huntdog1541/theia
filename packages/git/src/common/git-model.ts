@@ -1,9 +1,21 @@
-/*
+/********************************************************************************
  * Copyright (C) 2017 TypeFox and others.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
- */
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v. 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0.
+ *
+ * This Source Code may also be made available under the following Secondary
+ * Licenses when the conditions for such availability set forth in the Eclipse
+ * Public License v. 2.0 are satisfied: GNU General Public License, version 2
+ * with the GNU Classpath Exception which is available at
+ * https://www.gnu.org/software/classpath/license.html.
+ *
+ * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
+ ********************************************************************************/
+
+import URI from '@theia/core/lib/common/uri';
+import { Path } from '@theia/core';
 
 export interface WorkingDirectoryStatus {
 
@@ -37,6 +49,11 @@ export interface WorkingDirectoryStatus {
      */
     readonly currentHead?: string;
 
+    /**
+     * `true` if a limit was specified and reached during get `git status`, so this result is not complete. Otherwise, (including `undefined`) is complete.
+     */
+    readonly incomplete?: boolean;
+
 }
 
 export namespace WorkingDirectoryStatus {
@@ -53,6 +70,7 @@ export namespace WorkingDirectoryStatus {
                 && (left.aheadBehind ? left.aheadBehind.ahead : -1) === (right.aheadBehind ? right.aheadBehind.ahead : -1)
                 && (left.aheadBehind ? left.aheadBehind.behind : -1) === (right.aheadBehind ? right.aheadBehind.behind : -1)
                 && left.changes.length === right.changes.length
+                && !!left.incomplete === !!right.incomplete
                 && JSON.stringify(left) === JSON.stringify(right);
         } else {
             return left === right;
@@ -66,11 +84,52 @@ export namespace WorkingDirectoryStatus {
  */
 export enum GitFileStatus {
     'New',
+    'Copied',
     'Modified',
-    'Deleted',
     'Renamed',
+    'Deleted',
     'Conflicted',
-    'Copied'
+}
+
+export namespace GitFileStatus {
+
+    /**
+     * Compares the statuses based on the natural order of the enumeration.
+     */
+    export const statusCompare = (left: GitFileStatus, right: GitFileStatus): number => left - right;
+
+    /**
+     * Returns with human readable representation of the Git file status argument. If the `staged` argument is `undefined`,
+     * it will be treated as `false`.
+     */
+    export const toString = (status: GitFileStatus, staged?: boolean): string => {
+        switch (status) {
+            case GitFileStatus.New: return !!staged ? 'Added' : 'Unstaged';
+            case GitFileStatus.Renamed: return 'Renamed';
+            case GitFileStatus.Copied: return 'Copied';
+            case GitFileStatus.Modified: return 'Modified';
+            case GitFileStatus.Deleted: return 'Deleted';
+            case GitFileStatus.Conflicted: return 'Conflicted';
+            default: throw new Error(`Unexpected Git file stats: ${status}.`);
+        }
+    };
+
+    /**
+     * Returns with the human readable abbreviation of the Git file status argument. `staged` argument defaults to `false`.
+     */
+    export const toAbbreviation = (status: GitFileStatus, staged?: boolean): string => GitFileStatus.toString(status, staged).charAt(0);
+
+    export function getColor(status: GitFileStatus, staged?: boolean): string {
+        switch (status) {
+            case GitFileStatus.New: return 'var(--theia-success-color0)';
+            case GitFileStatus.Renamed: // Fall through.
+            case GitFileStatus.Copied: // Fall through.
+            case GitFileStatus.Modified: return 'var(--theia-brand-color0)';
+            case GitFileStatus.Deleted: return 'var(--theia-warn-color0)';
+            case GitFileStatus.Conflicted: return 'var(--theia-error-color0)';
+        }
+    }
+
 }
 
 /**
@@ -133,6 +192,36 @@ export namespace Repository {
         }
         return repository === repository2;
     }
+    export function is(repository: Object | undefined): repository is Repository {
+        return !!repository && 'localUri' in repository;
+    }
+    export function relativePath(repository: Repository | URI | string, uri: URI | string): Path | undefined {
+        const repositoryUri = new URI(Repository.is(repository) ? repository.localUri : String(repository));
+        return repositoryUri.relative(new URI(String(uri)));
+    }
+    export const sortComparator = (ra: Repository, rb: Repository) => rb.localUri.length - ra.localUri.length;
+}
+
+/**
+ * Representation of a Git remote.
+ */
+export interface Remote {
+
+    /**
+     * The name of the remote.
+     */
+    readonly name: string,
+
+    /**
+     * The remote fetch url.
+     */
+    readonly fetch: string,
+
+    /**
+     * The remote git url.
+     */
+    readonly push: string,
+
 }
 
 /**
@@ -197,6 +286,17 @@ export interface Branch {
 }
 
 /**
+ * Representation of a Git tag.
+ */
+export interface Tag {
+
+    /**
+     * The name of the tag.
+     */
+    readonly name: string;
+}
+
+/**
  * A Git commit.
  */
 export interface Commit {
@@ -214,7 +314,7 @@ export interface Commit {
     /**
      * The commit message without the first line and CR.
      */
-    readonly body: string;
+    readonly body?: string;
 
     /**
      * Information about the author of this commit. It includes name, email and date.
@@ -224,8 +324,24 @@ export interface Commit {
     /**
      * The SHAs for the parents of the commit.
      */
-    readonly parentSHAs: string[];
+    readonly parentSHAs?: string[];
 
+}
+
+/**
+ * Representation of a Git commit, plus the changes that were performed in that particular commit.
+ */
+export interface CommitWithChanges extends Commit {
+
+    /**
+     * The date when the commit was authored.
+     */
+    readonly authorDateRelative: string;
+
+    /**
+     * The number of file changes per commit.
+     */
+    readonly fileChanges: GitFileChange[];
 }
 
 /**
@@ -244,14 +360,9 @@ export interface CommitIdentity {
     readonly email: string;
 
     /**
-     * The date of the commit.
+     * The date of the commit in ISO format.
      */
-    readonly date: Date;
-
-    /**
-     * The time-zone offset.
-     */
-    readonly tzOffset: number;
+    readonly timestamp: string;
 
 }
 
@@ -278,9 +389,17 @@ export interface GitResult {
 }
 
 /**
+ * StashEntry
+ */
+export interface StashEntry {
+    readonly id: string;
+    readonly message: string;
+}
+
+/**
  * The Git errors which can be parsed from failed Git commands.
  */
-export declare enum GitError {
+export enum GitError {
     SSHKeyAuditUnverified = 0,
     SSHAuthenticationFailed = 1,
     SSHPermissionDenied = 2,
@@ -311,11 +430,30 @@ export declare enum GitError {
     NotAGitRepository = 27,
     CannotMergeUnrelatedHistories = 28,
     LFSAttributeDoesNotMatch = 29,
-    PushWithFileSizeExceedingLimit = 30,
-    HexBranchNameRejected = 31,
-    ForcePushRejected = 32,
-    InvalidRefLength = 33,
-    ProtectedBranchRequiresReview = 34,
-    ProtectedBranchForcePush = 35,
-    PushWithPrivateEmail = 36
+    BranchRenameFailed = 30,
+    PathDoesNotExist = 31,
+    InvalidObjectName = 32,
+    OutsideRepository = 33,
+    LockFileAlreadyExists = 34,
+    // GitHub-specific error codes
+    PushWithFileSizeExceedingLimit = 35,
+    HexBranchNameRejected = 36,
+    ForcePushRejected = 37,
+    InvalidRefLength = 38,
+    ProtectedBranchRequiresReview = 39,
+    ProtectedBranchForcePush = 40,
+    ProtectedBranchDeleteRejected = 41,
+    ProtectedBranchRequiredStatus = 42,
+    PushWithPrivateEmail = 43
+}
+
+export interface GitFileBlame {
+    readonly uri: string;
+    readonly commits: Commit[];
+    readonly lines: CommitLine[];
+}
+
+export interface CommitLine {
+    readonly sha: string;
+    readonly line: number;
 }

@@ -1,55 +1,78 @@
-/*
- * Copyright (C) 2017 TypeFox and others.
+/********************************************************************************
+ * Copyright (C) 2018 TypeFox and others.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
- */
-
-import { Git, GitPath } from '../common/git';
-import { ContainerModule } from 'inversify';
-import { bindGitPreferences } from '../common/git-preferences';
-import { WebSocketConnectionProvider, FrontendApplicationContribution, WidgetFactory } from '@theia/core/lib/browser';
-import { GitCommandHandlers } from './git-command';
-import { CommandContribution, MenuContribution, ResourceResolver } from "@theia/core/lib/common";
-import { GitWatcher, GitWatcherPath, GitWatcherServer, GitWatcherServerProxy, ReconnectingGitWatcherServer } from '../common/git-watcher';
-import { GitFrontendContribution, GIT_WIDGET_FACTORY_ID } from './git-frontend-contribution';
-import { GitWidget } from './git-widget';
-import { GitResourceResolver } from './git-resource';
-import { GitContextMenu } from './git-context-menu';
-import { GitRepositoryProvider } from './git-repository-provider';
-import { GitQuickOpenService } from './git-quick-open-service';
-import { LabelProviderContribution } from '@theia/core/lib/browser/label-provider';
-import { GitUriLabelProviderContribution } from './git-uri-label-contribution';
-import { KeybindingContribution } from '@theia/core/lib/common/keybinding';
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v. 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0.
+ *
+ * This Source Code may also be made available under the following Secondary
+ * Licenses when the conditions for such availability set forth in the Eclipse
+ * Public License v. 2.0 are satisfied: GNU General Public License, version 2
+ * with the GNU Classpath Exception which is available at
+ * https://www.gnu.org/software/classpath/license.html.
+ *
+ * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
+ ********************************************************************************/
 
 import '../../src/browser/style/index.css';
 
+import { ContainerModule } from 'inversify';
+import { CommandContribution, MenuContribution, ResourceResolver } from '@theia/core/lib/common';
+import {
+    WebSocketConnectionProvider,
+    LabelProviderContribution,
+    FrontendApplicationContribution,
+} from '@theia/core/lib/browser';
+import { TabBarToolbarContribution } from '@theia/core/lib/browser/shell/tab-bar-toolbar';
+import { NavigatorTreeDecorator } from '@theia/navigator/lib/browser';
+import { Git, GitPath, GitWatcher, GitWatcherPath, GitWatcherServer, GitWatcherServerProxy, ReconnectingGitWatcherServer } from '../common';
+import { GitContribution } from './git-contribution';
+import { bindGitDiffModule } from './diff/git-diff-frontend-module';
+import { bindGitHistoryModule } from './history/git-history-frontend-module';
+import { GitResourceResolver } from './git-resource-resolver';
+import { GitRepositoryProvider } from './git-repository-provider';
+import { GitQuickOpenService } from './git-quick-open-service';
+import { GitUriLabelProviderContribution } from './git-uri-label-contribution';
+import { GitDecorator } from './git-decorator';
+import { bindGitPreferences } from './git-preferences';
+import { bindDirtyDiff } from './dirty-diff/dirty-diff-module';
+import { bindBlame } from './blame/blame-module';
+import { GitRepositoryTracker } from './git-repository-tracker';
+import { GitCommitMessageValidator } from './git-commit-message-validator';
+import { GitSyncService } from './git-sync-service';
+import { GitErrorHandler } from './git-error-handler';
+import { GitScmProvider } from './git-scm-provider';
+
 export default new ContainerModule(bind => {
     bindGitPreferences(bind);
+    bindGitDiffModule(bind);
+    bindGitHistoryModule(bind);
+    bindDirtyDiff(bind);
+    bindBlame(bind);
+    bind(GitRepositoryTracker).toSelf().inSingletonScope();
     bind(GitWatcherServerProxy).toDynamicValue(context => WebSocketConnectionProvider.createProxy(context.container, GitWatcherPath)).inSingletonScope();
     bind(GitWatcherServer).to(ReconnectingGitWatcherServer).inSingletonScope();
     bind(GitWatcher).toSelf().inSingletonScope();
     bind(Git).toDynamicValue(context => WebSocketConnectionProvider.createProxy(context.container, GitPath)).inSingletonScope();
 
-    bind(CommandContribution).to(GitCommandHandlers);
-    bind(MenuContribution).to(GitContextMenu);
-
-    bind(GitFrontendContribution).toSelf().inSingletonScope();
-    bind(FrontendApplicationContribution).toDynamicValue(c => c.container.get(GitFrontendContribution));
-    bind(CommandContribution).toDynamicValue(c => c.container.get(GitFrontendContribution));
-    bind(KeybindingContribution).toDynamicValue(c => c.container.get(GitFrontendContribution));
-    bind(MenuContribution).toDynamicValue(c => c.container.get(GitFrontendContribution));
-    bind(GitWidget).toSelf();
-    bind(WidgetFactory).toDynamicValue(context => ({
-        id: GIT_WIDGET_FACTORY_ID,
-        createWidget: () => context.container.get<GitWidget>(GitWidget)
-    }));
+    bind(GitContribution).toSelf().inSingletonScope();
+    bind(CommandContribution).toService(GitContribution);
+    bind(MenuContribution).toService(GitContribution);
+    bind(FrontendApplicationContribution).toService(GitContribution);
+    bind(TabBarToolbarContribution).toService(GitContribution);
 
     bind(GitResourceResolver).toSelf().inSingletonScope();
-    bind(ResourceResolver).toDynamicValue(ctx => ctx.container.get(GitResourceResolver));
+    bind(ResourceResolver).toService(GitResourceResolver);
 
+    bind(GitScmProvider.Factory).toFactory(GitScmProvider.createFactory);
     bind(GitRepositoryProvider).toSelf().inSingletonScope();
     bind(GitQuickOpenService).toSelf().inSingletonScope();
 
     bind(LabelProviderContribution).to(GitUriLabelProviderContribution).inSingletonScope();
+    bind(NavigatorTreeDecorator).to(GitDecorator).inSingletonScope();
+
+    bind(GitCommitMessageValidator).toSelf().inSingletonScope();
+
+    bind(GitSyncService).toSelf().inSingletonScope();
+    bind(GitErrorHandler).toSelf().inSingletonScope();
 });

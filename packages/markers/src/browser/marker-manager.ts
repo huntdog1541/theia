@@ -1,19 +1,27 @@
-/*
+/********************************************************************************
  * Copyright (C) 2017 TypeFox and others.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
- */
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v. 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0.
+ *
+ * This Source Code may also be made available under the following Secondary
+ * Licenses when the conditions for such availability set forth in the Eclipse
+ * Public License v. 2.0 are satisfied: GNU General Public License, version 2
+ * with the GNU Classpath Exception which is available at
+ * https://www.gnu.org/software/classpath/license.html.
+ *
+ * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
+ ********************************************************************************/
 
-import { injectable, inject } from 'inversify';
-import { Event, Emitter } from "@theia/core/lib/common";
-import URI from "@theia/core/lib/common/uri";
-import { StorageService } from '@theia/core/lib/browser/storage-service';
-import { FileSystemWatcher, FileChangeType } from '@theia/filesystem/lib/common';
+import { injectable, inject, postConstruct } from 'inversify';
+import { Event, Emitter } from '@theia/core/lib/common';
+import URI from '@theia/core/lib/common/uri';
+import { FileSystemWatcher, FileChangeEvent, FileChangeType } from '@theia/filesystem/lib/browser/filesystem-watcher';
 import { Marker } from '../common/marker';
 
 /*
- * argument to the `findMarkes` method.
+ * argument to the `findMarkers` method.
  */
 export interface SearchFilter<D> {
     uri?: URI,
@@ -29,6 +37,10 @@ export class MarkerCollection<T> {
         public readonly uri: URI,
         public readonly kind: string
     ) { }
+
+    get empty(): boolean {
+        return !this.owner2Markers.size;
+    }
 
     getOwners(): string[] {
         return Array.from(this.owner2Markers.keys());
@@ -72,7 +84,7 @@ export class MarkerCollection<T> {
         }
     }
 
-    protected filterMarkers(filter: SearchFilter<T>, toFilter?: Marker<T>[]) {
+    protected filterMarkers(filter: SearchFilter<T>, toFilter?: Marker<T>[]): Marker<T>[] {
         if (!toFilter) {
             return [];
         }
@@ -85,12 +97,12 @@ export class MarkerCollection<T> {
 
 }
 
-interface Uri2MarkerEntry {
+export interface Uri2MarkerEntry {
     uri: string
     markers: Owner2MarkerEntry[]
 }
 
-interface Owner2MarkerEntry {
+export interface Owner2MarkerEntry {
     owner: string
     markerData: object[];
 }
@@ -101,103 +113,51 @@ export abstract class MarkerManager<D extends object> {
     public abstract getKind(): string;
 
     protected readonly uri2MarkerCollection = new Map<string, MarkerCollection<D>>();
-    protected readonly onDidChangeMarkersEmitter = new Emitter<void>();
-    readonly initialized: Promise<void>;
+    protected readonly onDidChangeMarkersEmitter = new Emitter<URI>();
 
-    constructor(
-        @inject(StorageService) protected storageService: StorageService,
-        @inject(FileSystemWatcher) protected fileWatcher?: FileSystemWatcher) {
-        this.initialized = this.loadMarkersFromStorage();
-        if (fileWatcher) {
-            fileWatcher.onFilesChanged(changes => {
-                for (const change of changes) {
-                    if (change.type === FileChangeType.DELETED) {
-                        const uriString = change.uri.toString();
-                        const collection = this.uri2MarkerCollection.get(uriString);
-                        if (collection !== undefined) {
-                            this.uri2MarkerCollection.delete(uriString);
-                            this.fireOnDidChangeMarkers();
-                        }
-                    }
-                }
-            });
-        }
-    }
+    @inject(FileSystemWatcher) protected fileWatcher: FileSystemWatcher;
 
-    protected getStorageKey(): string | undefined {
-        return 'marker-' + this.getKind();
-    }
-
-    protected async loadMarkersFromStorage(): Promise<void> {
-        const key = this.getStorageKey();
-        if (key) {
-            const entries = await this.storageService.getData<Uri2MarkerEntry[]>(key, []);
-            for (const entry of entries) {
-                for (const ownerEntry of entry.markers) {
-                    this.internalSetMarkers(new URI(entry.uri), ownerEntry.owner, ownerEntry.markerData as D[]);
-                }
+    @postConstruct()
+    protected init(): void {
+        this.fileWatcher.onFilesChanged(event => {
+            const relevantEvent = event.filter(({ type }) => type === FileChangeType.DELETED);
+            if (relevantEvent.length) {
+                this.cleanMarkers(relevantEvent);
             }
-            this.onDidChangeMarkers(() => this.saveMarkersToStorage());
-        }
+        });
     }
 
-    protected saveMarkersToStorage() {
-        const key = this.getStorageKey();
-        if (key) {
-            const result: Uri2MarkerEntry[] = [];
-            for (const [uri, collection] of this.uri2MarkerCollection.entries()) {
-                const ownerEntries: Owner2MarkerEntry[] = [];
-                for (const owner of collection.getOwners()) {
-                    const marker = collection.getMarkers(owner);
-                    if (marker) {
-                        ownerEntries.push({
-                            owner,
-                            markerData: Array.from(marker.map(m => m.data))
-                        });
-                    }
-                }
-                result.push({
-                    uri,
-                    markers: ownerEntries
-                });
+    protected cleanMarkers(event: FileChangeEvent): void {
+        for (const uriString of this.uri2MarkerCollection.keys()) {
+            const uri = new URI(uriString);
+            if (FileChangeEvent.isDeleted(event, uri)) {
+                this.cleanAllMarkers(uri);
             }
-            this.storageService.setData<Uri2MarkerEntry[]>(key, result);
         }
     }
 
-    get onDidChangeMarkers(): Event<void> {
+    get onDidChangeMarkers(): Event<URI> {
         return this.onDidChangeMarkersEmitter.event;
     }
 
-    protected fireOnDidChangeMarkers(): void {
-        this.onDidChangeMarkersEmitter.fire(undefined);
+    protected fireOnDidChangeMarkers(uri: URI): void {
+        this.onDidChangeMarkersEmitter.fire(uri);
     }
 
     /*
      * replaces the current markers for the given uri and owner with the given data.
      */
-    async setMarkers(uri: URI, owner: string, data: D[]): Promise<Marker<D>[]> {
-        await this.initialized;
-        return this.internalSetMarkers(uri, owner, data);
-    }
-
-    protected internalSetMarkers(uri: URI, owner: string, data: D[]): Marker<D>[] {
-        const collection = this.getCollection(uri);
-        const result = collection.setMarkers(owner, data);
-        this.fireOnDidChangeMarkers();
-        return result;
-    }
-
-    protected getCollection(uri: URI): MarkerCollection<D> {
-        let collection: MarkerCollection<D>;
+    setMarkers(uri: URI, owner: string, data: D[]): Marker<D>[] {
         const uriString = uri.toString();
-        if (this.uri2MarkerCollection.has(uriString)) {
-            collection = this.uri2MarkerCollection.get(uriString)!;
+        const collection = this.uri2MarkerCollection.get(uriString) || new MarkerCollection<D>(uri, this.getKind());
+        const oldMarkers = collection.setMarkers(owner, data);
+        if (collection.empty) {
+            this.uri2MarkerCollection.delete(uri.toString());
         } else {
-            collection = new MarkerCollection<D>(uri, this.getKind());
             this.uri2MarkerCollection.set(uriString, collection);
         }
-        return collection;
+        this.fireOnDidChangeMarkers(uri);
+        return oldMarkers;
     }
 
     /*
@@ -205,18 +165,36 @@ export abstract class MarkerManager<D extends object> {
      */
     findMarkers(filter: SearchFilter<D> = {}): Marker<D>[] {
         if (filter.uri) {
-            return this.getCollection(filter.uri)!.findMarkers(filter);
-        } else {
-            const result: Marker<D>[] = [];
-            for (const uri of this.getUris()) {
-                result.push(...this.getCollection(new URI(uri))!.findMarkers(filter));
-            }
-            return result;
+            const collection = this.uri2MarkerCollection.get(filter.uri.toString());
+            return collection ? collection.findMarkers(filter) : [];
         }
+        const result: Marker<D>[] = [];
+        for (const uri of this.getUris()) {
+            result.push(...this.uri2MarkerCollection.get(uri)!.findMarkers(filter));
+        }
+        return result;
     }
 
-    getUris(): Iterable<string> {
+    getUris(): IterableIterator<string> {
         return this.uri2MarkerCollection.keys();
+    }
+
+    cleanAllMarkers(uri?: URI): void {
+        if (uri) {
+            this.doCleanAllMarkers(uri);
+        } else {
+            for (const uriString of this.getUris()) {
+                this.doCleanAllMarkers(new URI(uriString));
+            }
+        }
+    }
+    protected doCleanAllMarkers(uri: URI): void {
+        const uriString = uri.toString();
+        const collection = this.uri2MarkerCollection.get(uriString);
+        if (collection !== undefined) {
+            this.uri2MarkerCollection.delete(uriString);
+            this.fireOnDidChangeMarkers(uri);
+        }
     }
 
 }

@@ -14,6 +14,7 @@ For Windows instructions [click here](#building-on-windows).
  - [**Prerequisites**](#prerequisites)
  - [**Quick Start**](#quick-start)
     - [Run with SSL](#run-the-browser-example-with-ssl)
+    - [Run with Gitpod](#run-the-browser-example-with-gitpod)
  - [**Clone the repository**](#clone-the-repository)
  - [**The repository structure**](#the-repository-structure)
  - [**Build core, extensions and examples packages**](#build-core-extensions-and-examples-packages)
@@ -25,13 +26,21 @@ For Windows instructions [click here](#building-on-windows).
      - [Watch the core and extension packages](#watch-the-core-and-extension-packages)
      - [Watch the examples](#watch-the-examples)
      - [Watch a specific package](#watch-a-specific-package)
+     - [Watch a specific package and its local upstream dependencies](#watch-a-specific-package-and-its-local-upstream-dependencies)
  - [**Debugging**](#debugging)
      - [Debug the browser example's backend](#debug-the-browser-examples-backend)
      - [Debug the browser example's frontend](#debug-the-browser-examples-frontend)
      - [Debug the browser example's frontend and backend at the same time](#debug-the-browser-examples-frontend-and-backend-at-the-same-time)
      - [Debug the Electron example's backend](#debug-the-electron-examples-backend)
      - [Debug the Electron example's frontend](#debug-the-electron-examples-frontend)
+     - [Debug the Electron example's frontend and backend at the same time](#debug-the-electron-examples-frontend-and-backend-at-the-same-time)
      - [Debug IPC servers](#debug-ipc-servers)
+     - [Debug the plugin host](#debug-the-plugin-host)
+ - [**Profiling**](#profiling)
+     - [Profile the frontend process](#profile-the-frontend-process)
+     - [Profile the backend process](#profile-the-backend-process)
+     - [Profile IPC servers](#profile-ipc-servers)
+     - [Profile the plugin host](#profile-the-plugin-host)
  - [**Testing**](#testing)
  - [**Code coverage**](#code-coverage)
  - [**Building on Windows**](#building-on-windows)
@@ -42,18 +51,36 @@ For Windows instructions [click here](#building-on-windows).
      - [Root privileges errors](#root-privileges-errors)
 
 ## Prerequisites
- - Node.js v8.0 or higher
- - [Yarn package manager](https://yarnpkg.com/en/docs/install) v1.2.1
+
+ - Node.js `>= 10.11.0` **AND** `< 12.x`.
+   - Preferably, **use** version `10.15.3`, it has the [active LTS](https://github.com/nodejs/Release).
+   - Node.js `11.x` is untested.
+   - Node.js `12.x` is [unsupported](https://github.com/eclipse-theia/theia/issues/5117).
+ - [Yarn package manager](https://yarnpkg.com/en/docs/install) v1.7.0
  - git (If you would like to use the Git-extension too, you will need to have git version 2.11.0 or higher.)
 
-[nvm](https://github.com/creationix/nvm) is recommended to easily switch between
-Node.js versions.
+Some additional tools and libraries are needed depending on your platform:
+
+- Linux
+  - [make](https://www.gnu.org/software/make/)
+  - [gcc](https://gcc.gnu.org/) (or another compiling toolchain)
+  - [pkg-config](https://www.freedesktop.org/wiki/Software/pkg-config/)
+  - Dependencies for `native-keymap` node native extension:
+    - Debian-based: `sudo apt-get install libx11-dev libxkbfile-dev`
+    - Red Hat-based: `sudo yum install libx11-devel.x86_64 libxkbfile-devel.x86_64 # or .i686`
+    - FreeBSD: `sudo pkg install libX11`
+
+- Linux/MacOS
+  - [nvm](https://github.com/nvm-sh/nvm) is recommended to easily switch between Node.js versions.
+
+- Windows
+  - [nvm-windows](https://github.com/coreybutler/nvm-windows) addresses the same issue as the Unix [nvm](https://github.com/nvm-sh/nvm) shell tool, although they are completely separate projects.
 
 ## Quick Start
 
 To build and run the browser example:
 
-    git clone https://github.com/theia-ide/theia \
+    git clone https://github.com/eclipse-theia/theia \
     && cd theia \
     && yarn \
     && cd examples/browser \
@@ -63,7 +90,7 @@ Start your browser on http://localhost:3000.
 
 To build and run the Electron example:
 
-    git clone https://github.com/theia-ide/theia \
+    git clone https://github.com/eclipse-theia/theia \
     && cd theia \
     && yarn \
     && yarn run rebuild:electron \
@@ -74,7 +101,7 @@ To build and run the Electron example:
 
 To run the browser example using SSL use:
 
-    git clone https://github.com/theia-ide/theia \
+    git clone https://github.com/eclipse-theia/theia \
     && cd theia \
     && yarn \
     && cd examples/browser \
@@ -82,9 +109,20 @@ To run the browser example using SSL use:
 
 Start your browser on https://localhost:3000.
 
+### Run the browser example with Gitpod
+
+[Gitpod](http://gitpod.io/) is a Theia-based IDE for GitHub.
+You can start by prefixing any GitHub URL in the Theia repository with `gitpod.io/#`:
+- Open http://gitpod.io/#https://github.com/eclipse-theia/theia to start development with the master branch.
+- Gitpod will start a properly configured for Theia development workspace, clone and build the Theia repository.
+- After the build is finished, run from the terminal in Gitpod:
+
+        cd examples/browser \
+        && yarn run start ../.. --hostname 0.0.0.0
+
 ## Clone the repository
 
-    git clone https://github.com/theia-ide/theia
+    git clone https://github.com/eclipse-theia/theia
 
 The directory containing the Theia repository will now be referred to as
 `$THEIA`, so if you want to copy-paste the examples, you can set the `THEIA`
@@ -104,7 +142,7 @@ Theia repository has multiple folders:
  - `doc` folder provides documentation about how Theia works
  - `scripts` folder contains JavaScript scripts used by npm scripts when
 installing
-- the root folder lists dev dependencies and wires everything together with [Lerna](https://lernajs.io/)
+- the root folder lists dev dependencies and wires everything together with [Lerna](https://lerna.js.org/)
 
 ## Build core, extensions and examples packages
 
@@ -178,31 +216,45 @@ You can use `npx` to watch a single package:
 
     npx run watch @theia/the-package-name
 
+### Watch a specific package and its local upstream dependencies
+
+Let assume you have to work for instance in the `@theia/navigator` extension. But you might have to apply changes in any of its upstream dependencies such as `@theia/filesystem` or `@theia/core`, you can either do `yarn watch` which could be super expensive, as it watches all the packages. Or you can do `npx run watch @theia/navigator` and `npx run watch @theia/filesystem` and `npx run watch @theia/core` in three individual shells. Or you can do the following single-liner:
+
+    npx run watch @theia/navigator --include-filtered-dependencies --parallel
+
 ## Debugging
 
 ### Debug the browser example's backend
 
- - In VS Code: start the debug tab and run the `Launch Backend` configuration.
+ - Open the debug view and run the `Launch Browser Backend` configuration.
 
 ### Debug the browser example's frontend
 
  - Start the backend by using `yarn run start`.
  - In a browser: Open http://localhost:3000/ and use the dev tools for debugging.
- - In VS Code: start the debug tab and run the `Launch Frontend` configuration.
+ - Open the debug view and run the `Launch Broowser Frontend` configuration.
 
 ### Debug the browser example's frontend and backend at the same time
 
- - In VS Code: Start the debug tab and run the `Launch Backend` configuration.
- - Then run the `Launch Frontend` configuration.
- 
+ - Open the debug view and run the `Launch Browser Backend` configuration.
+ - Then run the `Launch Browser Frontend` configuration.
+
 ### Debug the Electron example's backend
 
- - In VS Code: Start the debug tab and run the `Launch Electron Backend` configuration.
+ - Open the debug view and run the `Launch Electron Backend` configuration.
 
 ### Debug the Electron example's frontend
 
- - Start the backend by using `yarn run start`.
- - In Electron: Help -> Toggle Electron Developer Tools.
+ - Start the Electron backend
+   - Either open the debug view and run the `Launch Electron Backend` configuration
+   - Or use `yarn run start`.
+ - Attach to the Electron Frontend
+   - Either open the debug view and run the `Attach to Electron Frontend` configuration
+   - Or in Electron: Help -> Toggle Electron Developer Tools.
+
+### Debug the Electron example's frontend and backend at the same time
+
+ - Open the debug view and run the `Launch Electron Backend & Frontend` configuration.
 
 ### Debug IPC servers
 
@@ -211,8 +263,51 @@ You can use `npx` to watch a single package:
     - All variations of `--inspect` flag are supported: https://nodejs.org/en/docs/inspector/#command-line-options.
   - Attach the debugger to the logged port.
 
-In order to look up `server-name` run the backend server with `--logLevel=debug` flag to enable logging of IPC servers instantiation.
+In order to look up `server-name` run the backend server with `--log-level=debug` flag to enable logging of IPC servers instantiation.
 You should be able to see message of `[${server-name}: ${server-PID}]: IPC started` format, like `[nsfw-watcher: 37557] IPC started`.
+
+### Debug the plugin host
+
+  - Pass `--hosted-plugin-inspect=9339` arg to the backend server from the command line.
+    - Instead you can run `Launch Browser Backend` launch configuration which is already preconfigured.
+  - Open the debug view and run the `Attach to Plugin Host` launch configuration.
+    - It connects to the plugin host if at least one extension is detected, otherwise it timeouts after 60s.
+    - If you want to debug the activation then enable `stopOnEntry` flag.
+  - Open the browser page.
+
+## Profiling
+
+ - Use Chrome devtools to profile both the frontend and backend (Node.js).
+   - For Node.js: open chrome://inspect, click the configure button and ensure target host and port are listed.
+ - Learn how to get and understand CPU measurements: https://developers.google.com/web/tools/chrome-devtools/evaluate-performance/
+ - Learn how to get and understand Memory measurements: https://developers.google.com/web/tools/chrome-devtools/memory-problems/
+ - Before taking the memory snapshot always collect garbage.
+ - Make sure that Chrome extensions don't distort measurements by disabling them.
+   - For frontend: React extension is leaking components.
+ - Make measurements before and after improvements to provide them as evidence on a pull request.
+   - Also document how to reproduce improved measurements in `How to test` section of a pull request description.
+ - If objects don't have a proper class, i.e. plain JSON, then find one of them in the first snapshot
+ and check that it is garbage collected in the diff between snapshots.
+
+### Profile the frontend process
+
+  - In Browser: open the devtools.
+  - In Electron: Help -> Toggle Electron Developer Tools.
+
+### Profile the backend process
+
+  - Pass `--inspect` arg to the backend server: https://nodejs.org/en/docs/inspector/#command-line-options.
+
+### Profile IPC servers
+
+  - Pass `--${server-name}-inspect` arg to the backend server.
+    - For example `--nfsw-watcher-inspect=0` to inspect nfsw watcher processes with dynamic port allocation.
+    - All variations of `--inspect` flag are supported: https://nodejs.org/en/docs/inspector/#command-line-options.
+
+### Profile the plugin host
+
+ - Pass `--hosted-plugin-inspect` arg to the backend server.
+   - All variations of `--inspect` flag are supported: https://nodejs.org/en/docs/inspector/#command-line-options.
 
 ## Testing
 
@@ -244,7 +339,7 @@ Install `git` via `choco`
 
 Install the correct version of `yarn` (The version is important)
 
-    choco install yarn --version 1.2.1 -y
+    choco install yarn --version 1.7.0 -y
 
 Install Windows-Build-Tools.
 Run PowerShell as an administrator and copy-paste the below command:
@@ -254,11 +349,9 @@ Run PowerShell as an administrator and copy-paste the below command:
 Clone, build and run Theia.
 Using Git Bash as administrator:
 
-    git clone https://github.com/theia-ide/theia.git && cd theia && yarn && cd examples/browser && yarn run start
+    git clone https://github.com/eclipse-theia/theia.git && cd theia && yarn && cd examples/browser && yarn run start
 
 ## Troubleshooting
-
-You might see `error Could not open cafile: EISDIR: illegal operation on a directory` errors when running `yarn`. This is a known [issue in `yarn` version `1.2.1`](https://github.com/yarnpkg/yarn/issues/4695), and will be fixed in the next release. You can safely ignore it for now.
 
 ### Linux
 
@@ -296,17 +389,21 @@ If you have accidentally installed the wrong `yarn` version, you have to remove 
 
  - Run PowerShell as an administrator.
  - Run: choco uninstall yarn -y
- - Run: choco install yarn --version 1.2.1 -y
+ - Run: choco install yarn --version 1.7.0 -y
 
 [all-in-one packages]: https://github.com/felixrieseberg/windows-build-tools
-[bug]: https://github.com/theia-ide/theia/issues
+[bug]: https://github.com/eclipse-theia/theia/issues
 
 ### macOS
 
-You need to have the xcode command line tools installed in order to build and run Theia. You can install the tools by running
+You need to have the Xcode command line tools installed in order to build and run Theia. You can install the tools by running
 
     xcode-select --install
- 
+
+If you already have Xcode installed, but you see the `xcode-select: error: tool 'xcodebuild' requires Xcode, but active developer directory '/Library/Developer/CommandLineTools' is a command line tools instance` error, you need to run the following command to fix it: `sudo xcode-select --switch /Library/Developer/CommandLineTools`.
+
+The solution is the same if you have updated to `10.14` (Mojave) and you can see the `gyp: No Xcode or CLT version detected!` error. More details [here](https://github.com/nodejs/node-gyp#on-macos).
+
 ### Root privileges errors
 When trying to install with root privileges, you might encounter errors such as
 `cannot run in wd`.

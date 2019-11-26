@@ -1,31 +1,31 @@
-/*
+/********************************************************************************
  * Copyright (C) 2017 TypeFox and others.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
- */
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v. 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0.
+ *
+ * This Source Code may also be made available under the following Secondary
+ * Licenses when the conditions for such availability set forth in the Eclipse
+ * Public License v. 2.0 are satisfied: GNU General Public License, version 2
+ * with the GNU Classpath Exception which is available at
+ * https://www.gnu.org/software/classpath/license.html.
+ *
+ * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
+ ********************************************************************************/
 
-import "mocha";
-import * as chai from "chai";
-import * as chaiAsPromised from "chai-as-promised";
+import * as chai from 'chai';
 import { ConsoleLogger } from '../../node/messaging/logger';
-import { JsonRpcProxyFactory } from './proxy-factory';
-import { createMessageConnection } from "vscode-jsonrpc/lib/main";
-import * as stream from "stream";
+import { JsonRpcProxyFactory, JsonRpcProxy } from './proxy-factory';
+import { createMessageConnection } from 'vscode-jsonrpc/lib/main';
+import * as stream from 'stream';
 
 const expect = chai.expect;
 
-before(() => {
-    chai.config.showDiff = true;
-    chai.config.includeStack = true;
-    chai.should();
-    chai.use(chaiAsPromised);
-});
-
 class NoTransform extends stream.Transform {
 
+    // tslint:disable-next-line:no-any
     public _transform(chunk: any, encoding: string, callback: Function): void {
-        // console.log((chunk as Buffer).toString())
         callback(undefined, chunk);
     }
 }
@@ -38,11 +38,11 @@ class TestServer {
     }
 
     fails(arg: string, otherArg: string): Promise<string> {
-        throw new Error("fails failed");
+        throw new Error('fails failed');
     }
 
     fails2(arg: string, otherArg: string): Promise<string> {
-        return Promise.reject("fails2 failed");
+        return Promise.reject(new Error('fails2 failed'));
     }
 }
 
@@ -53,21 +53,19 @@ class TestClient {
     }
 }
 
-beforeEach(() => {
-});
-
 describe('Proxy-Factory', () => {
+
     it('Should correctly send notifications and requests.', done => {
-        let it = getSetup();
-        it.clientProxy.notifyThat("hello");
-        function check() {
+        const it = getSetup();
+        it.clientProxy.notifyThat('hello');
+        function check(): void {
             if (it.client.notifications.length === 0) {
-                console.log("waiting another 50 ms");
+                console.log('waiting another 50 ms');
                 setTimeout(check, 50);
             } else {
-                expect(it.client.notifications[0]).eq("hello");
-                it.serverProxy.doStuff("foo").then(result => {
-                    expect(result).to.be.eq("done: foo");
+                expect(it.client.notifications[0]).eq('hello');
+                it.serverProxy.doStuff('foo').then(result => {
+                    expect(result).to.be.eq('done: foo');
                     done();
                 });
             }
@@ -75,40 +73,45 @@ describe('Proxy-Factory', () => {
         check();
     });
     it('Rejected Promise should result in rejected Promise.', done => {
-        let it = getSetup();
-        let handle = setTimeout(() => done("timeout"), 500);
+        const it = getSetup();
+        const handle = setTimeout(() => done('timeout'), 500);
         it.serverProxy.fails('a', 'b').catch(err => {
-            expect(<Error>err.message).to.contain("fails failed");
+            expect(<Error>err.message).to.contain('fails failed');
             clearTimeout(handle);
             done();
         });
     });
     it('Remote Exceptions should result in rejected Promise.', done => {
-        let it = getSetup();
-        let handle = setTimeout(() => done("timeout"), 500);
-        it.serverProxy.fails2('a', 'b').catch(err => {
-            expect(<Error>err.message).to.contain("fails2 failed");
+        const { serverProxy } = getSetup();
+        const handle = setTimeout(() => done('timeout'), 500);
+        serverProxy.fails2('a', 'b').catch(err => {
+            expect(<Error>err.message).to.contain('fails2 failed');
             clearTimeout(handle);
             done();
         });
     });
 });
 
-function getSetup() {
-    let client = new TestClient();
-    let server = new TestServer();
+function getSetup(): {
+    client: TestClient;
+    clientProxy: JsonRpcProxy<TestClient>;
+    server: TestServer;
+    serverProxy: JsonRpcProxy<TestServer>;
+} {
+    const client = new TestClient();
+    const server = new TestServer();
 
-    let serverProxyFactory = new JsonRpcProxyFactory<TestServer>(client);
-    let client2server = new NoTransform();
-    let server2client = new NoTransform();
-    let serverConnection = createMessageConnection(server2client, client2server, new ConsoleLogger());
+    const serverProxyFactory = new JsonRpcProxyFactory<TestServer>(client);
+    const client2server = new NoTransform();
+    const server2client = new NoTransform();
+    const serverConnection = createMessageConnection(server2client, client2server, new ConsoleLogger());
     serverProxyFactory.listen(serverConnection);
-    let serverProxy = serverProxyFactory.createProxy();
+    const serverProxy = serverProxyFactory.createProxy();
 
-    let clientProxyFactory = new JsonRpcProxyFactory<TestClient>(server);
-    let clientConnection = createMessageConnection(client2server, server2client, new ConsoleLogger());
+    const clientProxyFactory = new JsonRpcProxyFactory<TestClient>(server);
+    const clientConnection = createMessageConnection(client2server, server2client, new ConsoleLogger());
     clientProxyFactory.listen(clientConnection);
-    let clientProxy = clientProxyFactory.createProxy();
+    const clientProxy = clientProxyFactory.createProxy();
     return {
         client,
         clientProxy,

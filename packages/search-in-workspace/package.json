@@ -1,11 +1,15 @@
 {
   "name": "@theia/search-in-workspace",
-  "version": "0.3.2",
+  "version": "0.12.0",
   "description": "Theia - Search in workspace",
   "dependencies": {
-    "@theia/core": "^0.3.2",
-    "@theia/editor": "^0.3.2",
-    "vscode-ripgrep": "^0.7.1-patch.0"
+    "@theia/core": "^0.12.0",
+    "@theia/editor": "^0.12.0",
+    "@theia/filesystem": "^0.12.0",
+    "@theia/navigator": "^0.12.0",
+    "@theia/process": "^0.12.0",
+    "@theia/workspace": "^0.12.0",
+    "vscode-ripgrep": "^1.2.4"
   },
   "publishConfig": {
     "access": "public"
@@ -19,15 +23,15 @@
   "keywords": [
     "theia-extension"
   ],
-  "license": "Apache-2.0",
+  "license": "EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0",
   "repository": {
     "type": "git",
-    "url": "https://github.com/theia-ide/theia.git"
+    "url": "https://github.com/eclipse-theia/theia.git"
   },
   "bugs": {
-    "url": "https://github.com/theia-ide/theia/issues"
+    "url": "https://github.com/eclipse-theia/theia/issues"
   },
-  "homepage": "https://github.com/theia-ide/theia",
+  "homepage": "https://github.com/eclipse-theia/theia",
   "files": [
     "lib",
     "src"
@@ -37,10 +41,9 @@
     "clean": "theiaext clean",
     "build": "theiaext build",
     "watch": "theiaext watch",
-    "test": "theiaext test",
-    "docs": "theiaext docs"
+    "test": "theiaext test"
   },
   "devDependencies": {
-    "@theia/ext-scripts": "^0.2.0"
+    "@theia/ext-scripts": "^0.12.0"
   }
 }

@@ -1,34 +1,65 @@
-/*
+/********************************************************************************
  * Copyright (C) 2017 TypeFox and others.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
- */
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v. 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0.
+ *
+ * This Source Code may also be made available under the following Secondary
+ * Licenses when the conditions for such availability set forth in the Eclipse
+ * Public License v. 2.0 are satisfied: GNU General Public License, version 2
+ * with the GNU Classpath Exception which is available at
+ * https://www.gnu.org/software/classpath/license.html.
+ *
+ * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
+ ********************************************************************************/
 
-import { injectable, inject, named } from "inversify";
+import { injectable, inject, named } from 'inversify';
 import { Disposable } from './disposable';
-import { CommandRegistry } from './command';
+import { CommandRegistry, Command } from './command';
 import { ContributionProvider } from './contribution-provider';
 
 export interface MenuAction {
     commandId: string
+    /**
+     * In addition to the mandatory command property, an alternative command can be defined.
+     * It will be shown and invoked when pressing Alt while opening a menu.
+     */
+    alt?: string;
     label?: string
     icon?: string
     order?: string
+    when?: string
+}
+
+export namespace MenuAction {
+    /* Determine whether object is a MenuAction */
+    // tslint:disable-next-line:no-any
+    export function is(arg: MenuAction | any): arg is MenuAction {
+        return !!arg && arg === Object(arg) && 'commandId' in arg;
+    }
 }
 
 export type MenuPath = string[];
 
 export const MAIN_MENU_BAR: MenuPath = ['menubar'];
 
-export const MenuContribution = Symbol("MenuContribution");
+export const MenuContribution = Symbol('MenuContribution');
+
+/**
+ * Representation of a menu contribution.
+ */
 export interface MenuContribution {
+    /**
+     * Registers menus.
+     * @param menus the menu model registry.
+     */
     registerMenus(menus: MenuModelRegistry): void;
 }
 
 @injectable()
 export class MenuModelRegistry {
-    protected readonly root = new CompositeMenuNode("");
+    protected readonly root = new CompositeMenuNode('');
 
     constructor(
         @inject(ContributionProvider) @named(MenuContribution)
@@ -50,7 +81,7 @@ export class MenuModelRegistry {
 
     registerSubmenu(menuPath: MenuPath, label: string): Disposable {
         if (menuPath.length === 0) {
-            throw new Error("The sub menu path cannot be empty.");
+            throw new Error('The sub menu path cannot be empty.');
         }
         const index = menuPath.length - 1;
         const menuId = menuPath[index];
@@ -70,6 +101,47 @@ export class MenuModelRegistry {
         }
     }
 
+    /**
+     * Unregister menu item from the registry
+     *
+     * @param item
+     */
+    unregisterMenuAction(item: MenuAction, menuPath?: MenuPath): void;
+    /**
+     * Unregister menu item from the registry
+     *
+     * @param command
+     */
+    unregisterMenuAction(command: Command, menuPath?: MenuPath): void;
+    /**
+     * Unregister menu item from the registry
+     *
+     * @param id
+     */
+    unregisterMenuAction(id: string, menuPath?: MenuPath): void;
+    unregisterMenuAction(itemOrCommandOrId: MenuAction | Command | string, menuPath?: MenuPath): void {
+        const id = MenuAction.is(itemOrCommandOrId) ? itemOrCommandOrId.commandId
+            : Command.is(itemOrCommandOrId) ? itemOrCommandOrId.id
+                : itemOrCommandOrId;
+
+        if (menuPath) {
+            const parent = this.findGroup(menuPath);
+            parent.removeNode(id);
+            return;
+        }
+
+        // Recurse all menus, removing any menus matching the id
+        const recurse = (root: CompositeMenuNode) => {
+            root.children.forEach(node => {
+                if (node instanceof CompositeMenuNode) {
+                    node.removeNode(id);
+                    recurse(node);
+                }
+            });
+        };
+        recurse(this.root);
+    }
+
     protected findGroup(menuPath: MenuPath): CompositeMenuNode {
         let currentMenu = this.root;
         for (const segment of menuPath) {
@@ -84,7 +156,7 @@ export class MenuModelRegistry {
             return sub;
         }
         if (sub) {
-            throw Error(`'${menuId}' is not a menu group.`);
+            throw new Error(`'${menuId}' is not a menu group.`);
         }
         const newSub = new CompositeMenuNode(menuId);
         current.addNode(newSub);
@@ -120,6 +192,13 @@ export class CompositeMenuNode implements MenuNode {
     public addNode(node: MenuNode): Disposable {
         this._children.push(node);
         this._children.sort((m1, m2) => {
+            // The navigation group is special as it will always be sorted to the top/beginning of a menu.
+            if (CompositeMenuNode.isNavigationGroup(m1)) {
+                return -1;
+            }
+            if (CompositeMenuNode.isNavigationGroup(m2)) {
+                return 1;
+            }
             if (m1.sortString < m2.sortString) {
                 return -1;
             } else if (m1.sortString > m2.sortString) {
@@ -138,20 +217,41 @@ export class CompositeMenuNode implements MenuNode {
         };
     }
 
-    get sortString() {
+    public removeNode(id: string): void {
+        const node = this._children.find(n => n.id === id);
+        if (node) {
+            const idx = this._children.indexOf(node);
+            if (idx >= 0) {
+                this._children.splice(idx, 1);
+            }
+        }
+    }
+
+    get sortString(): string {
         return this.id;
     }
 
     get isSubmenu(): boolean {
         return this.label !== undefined;
     }
+
+    static isNavigationGroup(node: MenuNode): node is CompositeMenuNode {
+        return node instanceof CompositeMenuNode && node.id === 'navigation';
+    }
 }
 
 export class ActionMenuNode implements MenuNode {
+
+    readonly altNode: ActionMenuNode | undefined;
+
     constructor(
         public readonly action: MenuAction,
         protected readonly commands: CommandRegistry
-    ) { }
+    ) {
+        if (action.alt) {
+            this.altNode = new ActionMenuNode({ commandId: action.alt }, commands);
+        }
+    }
 
     get id(): string {
         return this.action.commandId;
@@ -169,10 +269,14 @@ export class ActionMenuNode implements MenuNode {
     }
 
     get icon(): string | undefined {
-        return this.action.icon;
+        if (this.action.icon) {
+            return this.action.icon;
+        }
+        const command = this.commands.getCommand(this.action.commandId);
+        return command && command.iconClass;
     }
 
-    get sortString() {
+    get sortString(): string {
         return this.action.order || this.label;
     }
 }

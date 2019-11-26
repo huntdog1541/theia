@@ -1,18 +1,27 @@
-/*
+/********************************************************************************
  * Copyright (C) 2017 TypeFox and others.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
- */
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v. 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0.
+ *
+ * This Source Code may also be made available under the following Secondary
+ * Licenses when the conditions for such availability set forth in the Eclipse
+ * Public License v. 2.0 are satisfied: GNU General Public License, version 2
+ * with the GNU Classpath Exception which is available at
+ * https://www.gnu.org/software/classpath/license.html.
+ *
+ * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
+ ********************************************************************************/
 
-import { named, injectable, inject } from "inversify";
-import URI from "../common/uri";
-import { ContributionProvider, Prioritizeable, MaybePromise } from "../common";
+import { named, injectable, inject } from 'inversify';
+import URI from '../common/uri';
+import { ContributionProvider, Prioritizeable, MaybePromise } from '../common';
 
 export interface OpenerOptions {
 }
 
-export const OpenHandler = Symbol("OpenHandler");
+export const OpenHandler = Symbol('OpenHandler');
 /**
  * `OpenHandler` should be implemented to provide a new opener.
  */
@@ -31,10 +40,10 @@ export interface OpenHandler {
     readonly iconClass?: string;
     /**
      * Test whether this handler can open the given URI for given options.
-     * Return a positive number if this handler can open; otherwise it cannot.
+     * Return a nonzero number if this handler can open; otherwise it cannot.
      * Never reject.
      *
-     * A returned value indicating a priorify of this handler.
+     * A returned value indicating a priority of this handler.
      */
     canHandle(uri: URI, options?: OpenerOptions): MaybePromise<number>;
     /**
@@ -45,7 +54,7 @@ export interface OpenHandler {
     open(uri: URI, options?: OpenerOptions): MaybePromise<object | undefined>;
 }
 
-export const OpenerService = Symbol("OpenerService");
+export const OpenerService = Symbol('OpenerService');
 /**
  * `OpenerService` provide an access to existing openers.
  */
@@ -69,8 +78,8 @@ export interface OpenerService {
 }
 
 export async function open(openerService: OpenerService, uri: URI, options?: OpenerOptions): Promise<object | undefined> {
-    const opener = await openerService.getOpener(uri);
-    return await opener.open(uri, options);
+    const opener = await openerService.getOpener(uri, options);
+    return opener.open(uri, options);
 }
 
 @injectable()
@@ -86,7 +95,7 @@ export class DefaultOpenerService implements OpenerService {
         if (handlers.length >= 1) {
             return handlers[0];
         }
-        return Promise.reject(`There is no opener for ${uri}.`);
+        return Promise.reject(new Error(`There is no opener for ${uri}.`));
     }
 
     async getOpeners(uri?: URI, options?: OpenerOptions): Promise<OpenHandler[]> {
@@ -94,9 +103,13 @@ export class DefaultOpenerService implements OpenerService {
     }
 
     protected async prioritize(uri: URI, options?: OpenerOptions): Promise<OpenHandler[]> {
-        const prioritized = await Prioritizeable.prioritizeAll(this.getHandlers(), handler =>
-            handler.canHandle(uri, options)
-        );
+        const prioritized = await Prioritizeable.prioritizeAll(this.getHandlers(), async handler => {
+            try {
+                return await handler.canHandle(uri, options);
+            } catch {
+                return 0;
+            }
+        });
         return prioritized.map(p => p.value);
     }
 

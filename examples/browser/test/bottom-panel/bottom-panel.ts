@@ -1,48 +1,81 @@
-/*
+/********************************************************************************
  * Copyright (C) 2018 TypeFox and others.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
- */
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v. 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0.
+ *
+ * This Source Code may also be made available under the following Secondary
+ * Licenses when the conditions for such availability set forth in the Eclipse
+ * Public License v. 2.0 are satisfied: GNU General Public License, version 2
+ * with the GNU Classpath Exception which is available at
+ * https://www.gnu.org/software/classpath/license.html.
+ *
+ * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
+ ********************************************************************************/
 
-import "webdriverio";
+import 'webdriverio';
 
 export class BottomPanel {
 
     constructor(protected readonly driver: WebdriverIO.Client<void>) { }
 
     doesTabExist(tabName: string): boolean {
-        return this.driver.element(`.p-TabBar.theia-app-bottom .p-TabBar-content`).isExisting(`div\=${tabName}`);
+        return this.driver.element('#theia-bottom-content-panel .p-TabBar .p-TabBar-content').isExisting(`div=${tabName}`);
     }
 
     isTabActive(tabName: string): boolean {
-        const tab = this.driver.element(`.p-TabBar.theia-app-bottom .p-TabBar-content`).element(`div\=${tabName}`);
+        const tab = this.driver.element('#theia-bottom-content-panel .p-TabBar .p-TabBar-content').element(`div=${tabName}`);
         /* Check if the parent li container has the p-mod-current class which makes it active*/
-        return (tab.$(`..`).getAttribute('class').split(' ').indexOf('p-mod-current') > -1);
+        return (tab.$('..').getAttribute('class').split(' ').indexOf('p-mod-current') > -1);
     }
 
-    openCloseTab(tabName: string) {
-        this.driver.element(`.p-TabBar.theia-app-bottom .p-TabBar-content`).click(`div\=${tabName}`);
+    openTab(tabName: string): void {
+        this.driver.element('#theia-bottom-content-panel .p-TabBar .p-TabBar-content').click(`div=${tabName}`);
     }
 
     isTerminalVisible(): boolean {
         return this.driver.isExisting('.p-Widget div.terminal.xterm');
     }
 
-    waitForTerminal() {
+    waitForTerminal(): void {
         this.driver.waitForExist('.p-Widget div.terminal.xterm');
+        // Wait for animations to finish
+        this.driver.pause(300);
     }
 
     isProblemsViewVisible(): boolean {
         return this.driver.isExisting('.p-Widget div.theia-marker-container');
     }
 
-    waitForProblemsView() {
+    waitForProblemsView(): void {
         this.driver.waitForExist('.p-Widget div.theia-marker-container');
+        // Wait for animations to finish
+        this.driver.pause(300);
     }
 
-    closeCurrentView() {
-        this.driver.click(`.p-TabBar.theia-app-bottom .p-TabBar-tab.theia-mod-current .p-TabBar-tabCloseIcon`);
+    isCallHierarchyViewVisible(): boolean {
+        return this.driver.isExisting('#callhierarchy');
+    }
+
+    waitForCallHierarchyView(): void {
+        this.driver.waitForExist('#callhierarchy');
+        // Wait for animations to finish
+        this.driver.pause(300);
+    }
+
+    isOutputViewVisible(): boolean {
+        return this.driver.isExisting('.p-Widget div.theia-output');
+    }
+
+    waitForOutputView(): void {
+        this.driver.waitForExist('.p-Widget div.theia-output');
+        // Wait for animations to finish
+        this.driver.pause(300);
+    }
+
+    closeCurrentView(): void {
+        this.driver.click('#theia-bottom-content-panel .p-TabBar-tab.p-mod-current .p-TabBar-tabCloseIcon');
     }
 
 }

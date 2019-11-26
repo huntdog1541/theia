@@ -1,32 +1,39 @@
-/*
+/********************************************************************************
  * Copyright (C) 2017 TypeFox and others.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
- */
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v. 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0.
+ *
+ * This Source Code may also be made available under the following Secondary
+ * Licenses when the conditions for such availability set forth in the Eclipse
+ * Public License v. 2.0 are satisfied: GNU General Public License, version 2
+ * with the GNU Classpath Exception which is available at
+ * https://www.gnu.org/software/classpath/license.html.
+ *
+ * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
+ ********************************************************************************/
+
+// tslint:disable-next-line:no-implicit-dependencies
+import * as upath from 'upath';
 
 import * as path from 'path';
 import * as temp from 'temp';
 import * as fs from 'fs-extra';
 import { expect } from 'chai';
-import { Container, interfaces } from 'inversify';
-import { DugiteGit } from './dugite-git';
+import { Git } from '../common/git';
 import { git as gitExec } from 'dugite-extra/lib/core/git';
 import { FileUri } from '@theia/core/lib/node/file-uri';
-import { WorkingDirectoryStatus, Repository, GitUtils, GitFileStatus } from '../common';
+import { WorkingDirectoryStatus, Repository, GitUtils, GitFileStatus, GitFileChange } from '../common';
 import { initRepository, createTestRepository } from 'dugite-extra/lib/command/test-helper';
-import { bindGit } from './git-backend-module';
-import { bindLogger } from '@theia/core/lib/node/logger-backend-module';
-import { ILoggerServer } from '@theia/core/lib/common/logger-protocol';
-import { ConsoleLoggerServer } from '@theia/core/lib/common/console-logger-server';
-import { MockRepositoryManager } from './test/mock-repository-manager';
-import { MockRepositoryWatcher } from './test/mock-repository-watcher';
+import { createGit } from './test/binding-helper';
 
 // tslint:disable:no-unused-expression
+// tslint:disable:max-line-length
 
 const track = temp.track();
 
-describe('git', async function () {
+describe('git', async function (): Promise<void> {
 
     this.timeout(10000);
 
@@ -42,10 +49,10 @@ describe('git', async function () {
             fs.mkdirSync(path.join(root, 'A'));
             fs.mkdirSync(path.join(root, 'B'));
             fs.mkdirSync(path.join(root, 'C'));
+            const git = await createGit();
             await initRepository(path.join(root, 'A'));
             await initRepository(path.join(root, 'B'));
             await initRepository(path.join(root, 'C'));
-            const git = await createGit();
             const workspaceRootUri = FileUri.create(root).toString();
             const repositories = await git.repositories(workspaceRootUri, { maxCount: 1 });
             expect(repositories.length).to.deep.equal(1);
@@ -54,14 +61,14 @@ describe('git', async function () {
 
         it('should discover all nested repositories', async () => {
 
-            const root = track.mkdirSync('discovery-test-1');
+            const root = track.mkdirSync('discovery-test-2');
             fs.mkdirSync(path.join(root, 'A'));
             fs.mkdirSync(path.join(root, 'B'));
             fs.mkdirSync(path.join(root, 'C'));
+            const git = await createGit();
             await initRepository(path.join(root, 'A'));
             await initRepository(path.join(root, 'B'));
             await initRepository(path.join(root, 'C'));
-            const git = await createGit();
             const workspaceRootUri = FileUri.create(root).toString();
             const repositories = await git.repositories(workspaceRootUri, {});
             expect(repositories.map(r => path.basename(FileUri.fsPath(r.localUri))).sort()).to.deep.equal(['A', 'B', 'C']);
@@ -70,16 +77,16 @@ describe('git', async function () {
 
         it('should discover all nested repositories and the root repository which is at the workspace root', async () => {
 
-            const root = track.mkdirSync('discovery-test-2');
+            const root = track.mkdirSync('discovery-test-3');
             fs.mkdirSync(path.join(root, 'BASE'));
             fs.mkdirSync(path.join(root, 'BASE', 'A'));
             fs.mkdirSync(path.join(root, 'BASE', 'B'));
             fs.mkdirSync(path.join(root, 'BASE', 'C'));
+            const git = await createGit();
             await initRepository(path.join(root, 'BASE'));
             await initRepository(path.join(root, 'BASE', 'A'));
             await initRepository(path.join(root, 'BASE', 'B'));
             await initRepository(path.join(root, 'BASE', 'C'));
-            const git = await createGit();
             const workspaceRootUri = FileUri.create(path.join(root, 'BASE')).toString();
             const repositories = await git.repositories(workspaceRootUri, {});
             expect(repositories.map(r => path.basename(FileUri.fsPath(r.localUri))).sort()).to.deep.equal(['A', 'B', 'BASE', 'C']);
@@ -88,17 +95,17 @@ describe('git', async function () {
 
         it('should discover all nested repositories and the container repository', async () => {
 
-            const root = track.mkdirSync('discovery-test-3');
+            const root = track.mkdirSync('discovery-test-4');
             fs.mkdirSync(path.join(root, 'BASE'));
             fs.mkdirSync(path.join(root, 'BASE', 'WS_ROOT'));
             fs.mkdirSync(path.join(root, 'BASE', 'WS_ROOT', 'A'));
             fs.mkdirSync(path.join(root, 'BASE', 'WS_ROOT', 'B'));
             fs.mkdirSync(path.join(root, 'BASE', 'WS_ROOT', 'C'));
+            const git = await createGit();
             await initRepository(path.join(root, 'BASE'));
             await initRepository(path.join(root, 'BASE', 'WS_ROOT', 'A'));
             await initRepository(path.join(root, 'BASE', 'WS_ROOT', 'B'));
             await initRepository(path.join(root, 'BASE', 'WS_ROOT', 'C'));
-            const git = await createGit();
             const workspaceRootUri = FileUri.create(path.join(root, 'BASE', 'WS_ROOT')).toString();
             const repositories = await git.repositories(workspaceRootUri, {});
             const repositoryNames = repositories.map(r => path.basename(FileUri.fsPath(r.localUri)));
@@ -203,7 +210,7 @@ describe('git', async function () {
     describe('show', async () => {
 
         let repository: Repository | undefined;
-        let git: DugiteGit | undefined;
+        let git: Git | undefined;
 
         beforeEach(async () => {
             const root = await createTestRepository(track.mkdirSync('status-test'));
@@ -338,20 +345,470 @@ describe('git', async function () {
 
     });
 
+    describe('similarity-status', async () => {
+
+        it('copied (2)', () => {
+            expect(GitUtils.isSimilarityStatus('C2')).to.be.false;
+        });
+
+        it('copied (20)', () => {
+            expect(GitUtils.isSimilarityStatus('C20')).to.be.false;
+        });
+
+        it('copied (020)', () => {
+            expect(GitUtils.isSimilarityStatus('C020')).to.be.true;
+        });
+
+        it('renamed (2)', () => {
+            expect(GitUtils.isSimilarityStatus('R2')).to.be.false;
+        });
+
+        it('renamed (20)', () => {
+            expect(GitUtils.isSimilarityStatus('R20')).to.be.false;
+        });
+
+        it('renamed (020)', () => {
+            expect(GitUtils.isSimilarityStatus('R020')).to.be.true;
+        });
+
+        it('invalid', () => {
+            expect(GitUtils.isSimilarityStatus('invalid')).to.be.false;
+        });
+
+    });
+
+    describe('blame', async () => {
+
+        const init = async (git: Git, repository: Repository) => {
+            await git.exec(repository, ['init']);
+            if ((await git.exec(repository, ['config', 'user.name'], { successExitCodes: new Set([0, 1]) })).exitCode !== 0) {
+                await git.exec(repository, ['config', 'user.name', 'User Name']);
+            }
+            if ((await git.exec(repository, ['config', 'user.email'], { successExitCodes: new Set([0, 1]) })).exitCode !== 0) {
+                await git.exec(repository, ['config', 'user.email', 'user.name@domain.com']);
+            }
+        };
+
+        it('blame file with dirty content', async () => {
+            const fileName = 'blame.me.not';
+            const root = track.mkdirSync('blame-dirty-file');
+            const filePath = path.join(root, fileName);
+            const localUri = FileUri.create(root).toString();
+            const repository = { localUri };
+
+            const writeContentLines = async (lines: string[]) => fs.writeFile(filePath, lines.join('\n'), { encoding: 'utf8' });
+            const addAndCommit = async (message: string) => {
+                await git.exec(repository, ['add', '.']);
+                await git.exec(repository, ['commit', '-m', `${message}`]);
+            };
+            const expectBlame = async (content: string, expected: [number, string][]) => {
+                const uri = FileUri.create(path.join(root, fileName)).toString();
+                const actual = await git.blame(repository, uri, { content });
+                expect(actual).to.be.not.undefined;
+                const messages = new Map(actual!.commits.map<[string, string]>(c => [c.sha, c.summary]));
+                const lineMessages = actual!.lines.map(l => [l.line, messages.get(l.sha)]);
+                expect(lineMessages).to.be.deep.equal(expected);
+            };
+
+            const git = await createGit();
+            await init(git, repository);
+            await fs.createFile(filePath);
+
+            await writeContentLines(['🍏', '🍏', '🍏', '🍏', '🍏', '🍏']);
+            await addAndCommit('six 🍏');
+
+            await expectBlame(['🍏', '🍐', '🍐', '🍏', '🍏', '🍏'].join('\n'),
+                [
+                    [0, 'six 🍏'],
+                    [1, 'uncommitted'],
+                    [2, 'uncommitted'],
+                    [3, 'six 🍏'],
+                    [4, 'six 🍏'],
+                    [5, 'six 🍏'],
+                ]);
+        });
+
+        it('uncommitted file', async () => {
+            const fileName = 'uncommitted.file';
+            const root = track.mkdirSync('try-blame');
+            const filePath = path.join(root, fileName);
+            const localUri = FileUri.create(root).toString();
+            const repository = { localUri };
+
+            const writeContentLines = async (lines: string[]) => fs.writeFile(filePath, lines.join('\n'), { encoding: 'utf8' });
+            const add = async () => {
+                await git.exec(repository, ['add', '.']);
+            };
+            const expectUndefinedBlame = async () => {
+                const uri = FileUri.create(path.join(root, fileName)).toString();
+                const actual = await git.blame(repository, uri);
+                expect(actual).to.be.undefined;
+            };
+
+            const git = await createGit();
+            await init(git, repository);
+            await fs.createFile(filePath);
+
+            await writeContentLines(['🍏', '🍏', '🍏', '🍏', '🍏', '🍏']);
+            await expectUndefinedBlame();
+
+            await add();
+            await expectUndefinedBlame();
+
+            await writeContentLines(['🍏', '🍐', '🍐', '🍏', '🍏', '🍏']);
+            await expectUndefinedBlame();
+        });
+
+        it('blame file', async () => {
+            const fileName = 'blame.me';
+            const root = track.mkdirSync('blame-file');
+            const filePath = path.join(root, fileName);
+            const localUri = FileUri.create(root).toString();
+            const repository = { localUri };
+
+            const writeContentLines = async (lines: string[]) => fs.writeFile(filePath, lines.join('\n'), { encoding: 'utf8' });
+            const addAndCommit = async (message: string) => {
+                await git.exec(repository, ['add', '.']);
+                await git.exec(repository, ['commit', '-m', `${message}`]);
+            };
+            const expectBlame = async (expected: [number, string][]) => {
+                const uri = FileUri.create(path.join(root, fileName)).toString();
+                const actual = await git.blame(repository, uri);
+                expect(actual).to.be.not.undefined;
+                const messages = new Map(actual!.commits.map<[string, string]>(c => [c.sha, c.summary]));
+                const lineMessages = actual!.lines.map(l => [l.line, messages.get(l.sha)]);
+                expect(lineMessages).to.be.deep.equal(expected);
+            };
+
+            const git = await createGit();
+            await init(git, repository);
+            await fs.createFile(filePath);
+
+            await writeContentLines(['🍏', '🍏', '🍏', '🍏', '🍏', '🍏']);
+            await addAndCommit('six 🍏');
+
+            await writeContentLines(['🍏', '🍐', '🍐', '🍏', '🍏', '🍏']);
+            await addAndCommit('replace two with 🍐');
+
+            await writeContentLines(['🍏', '🍐', '🍋', '🍋', '🍏', '🍏']);
+            await addAndCommit('replace two with 🍋');
+
+            await writeContentLines(['🍏', '🍐', '🍋', '🍌', '🍌', '🍏']);
+
+            await expectBlame([
+                [0, 'six 🍏'],
+                [1, 'replace two with 🍐'],
+                [2, 'replace two with 🍋'],
+                [3, 'uncommitted'],
+                [4, 'uncommitted'],
+                [5, 'six 🍏'],
+            ]);
+        });
+
+        it('commit summary and body', async () => {
+            const fileName = 'blame.me';
+            const root = track.mkdirSync('blame-with-commit-body');
+            const filePath = path.join(root, fileName);
+            const localUri = FileUri.create(root).toString();
+            const repository = { localUri };
+
+            const writeContentLines = async (lines: string[]) => fs.writeFile(filePath, lines.join('\n'), { encoding: 'utf8' });
+            const addAndCommit = async (message: string) => {
+                await git.exec(repository, ['add', '.']);
+                await git.exec(repository, ['commit', '-m', `${message}`]);
+            };
+            const expectBlame = async (expected: [number, string, string][]) => {
+                const uri = FileUri.create(path.join(root, fileName)).toString();
+                const actual = await git.blame(repository, uri);
+                expect(actual).to.be.not.undefined;
+                const messages = new Map(actual!.commits.map<[string, string[]]>(c => [c.sha, [c.summary, c.body!]]));
+                const lineMessages = actual!.lines.map(l => [l.line, ...messages.get(l.sha)!]);
+                expect(lineMessages).to.be.deep.equal(expected);
+            };
+
+            const git = await createGit();
+            await init(git, repository);
+            await fs.createFile(filePath);
+
+            await writeContentLines(['🍏']);
+            await addAndCommit('add 🍏\n* green\n* red');
+
+            await expectBlame([
+                [0, 'add 🍏', '* green\n* red']
+            ]);
+        });
+    });
+
+    describe('diff', async () => {
+        const init = async (git: Git, repository: Repository) => {
+            await git.exec(repository, ['init']);
+            if ((await git.exec(repository, ['config', 'user.name'], { successExitCodes: new Set([0, 1]) })).exitCode !== 0) {
+                await git.exec(repository, ['config', 'user.name', 'User Name']);
+            }
+            if ((await git.exec(repository, ['config', 'user.email'], { successExitCodes: new Set([0, 1]) })).exitCode !== 0) {
+                await git.exec(repository, ['config', 'user.email', 'user.name@domain.com']);
+            }
+        };
+
+        it('diff without ranges / unstaged', async () => {
+            const root = track.mkdirSync('diff-without-ranges');
+            const localUri = FileUri.create(root).toString();
+            const repository = { localUri };
+            await fs.createFile(path.join(root, 'A.txt'));
+            await fs.writeFile(path.join(root, 'A.txt'), 'A content', { encoding: 'utf8' });
+            const git = await createGit();
+
+            await init(git, repository);
+
+            const expectDiff: (expected: ChangeDelta[]) => Promise<void> = async expected => {
+                const actual = (await git.diff(repository)).map(change => ChangeDelta.map(repository, change)).sort(ChangeDelta.compare);
+                expect(actual).to.be.deep.equal(expected);
+            };
+
+            await git.exec(repository, ['add', '.']);
+            await git.exec(repository, ['commit', '-m', '"Initialized."']); // HEAD
+
+            await fs.createFile(path.join(root, 'B.txt'));
+            await fs.writeFile(path.join(root, 'B.txt'), 'B content', { encoding: 'utf8' });
+            await expectDiff([]); // Unstaged (new)
+
+            await fs.writeFile(path.join(root, 'A.txt'), 'updated A content', { encoding: 'utf8' });
+            await expectDiff([{ pathSegment: 'A.txt', status: GitFileStatus.Modified }]); // Unstaged (modified)
+
+            await fs.unlink(path.join(root, 'A.txt'));
+            await expectDiff([{ pathSegment: 'A.txt', status: GitFileStatus.Deleted }]); // Unstaged (deleted)
+        });
+
+        it('diff without ranges / staged', async () => {
+            const root = track.mkdirSync('diff-without-ranges');
+            const localUri = FileUri.create(root).toString();
+            const repository = { localUri };
+            await fs.createFile(path.join(root, 'A.txt'));
+            await fs.writeFile(path.join(root, 'A.txt'), 'A content', { encoding: 'utf8' });
+            const git = await createGit();
+
+            await init(git, repository);
+
+            const expectDiff: (expected: ChangeDelta[]) => Promise<void> = async expected => {
+                const actual = (await git.diff(repository)).map(change => ChangeDelta.map(repository, change)).sort(ChangeDelta.compare);
+                expect(actual).to.be.deep.equal(expected);
+            };
+
+            await git.exec(repository, ['add', '.']);
+            await git.exec(repository, ['commit', '-m', '"Initialized."']); // HEAD
+
+            await fs.createFile(path.join(root, 'B.txt'));
+            await fs.writeFile(path.join(root, 'B.txt'), 'B content', { encoding: 'utf8' });
+            await git.add(repository, FileUri.create(path.join(root, 'B.txt')).toString());
+            await expectDiff([{ pathSegment: 'B.txt', status: GitFileStatus.New }]); // Staged (new)
+
+            await fs.writeFile(path.join(root, 'A.txt'), 'updated A content', { encoding: 'utf8' });
+            await git.add(repository, FileUri.create(path.join(root, 'A.txt')).toString());
+            await expectDiff([{ pathSegment: 'A.txt', status: GitFileStatus.Modified }, { pathSegment: 'B.txt', status: GitFileStatus.New }]); // Staged (modified)
+
+            await fs.unlink(path.join(root, 'A.txt'));
+            await git.add(repository, FileUri.create(path.join(root, 'A.txt')).toString());
+            await expectDiff([{ pathSegment: 'A.txt', status: GitFileStatus.Deleted }, { pathSegment: 'B.txt', status: GitFileStatus.New }]); // Staged (deleted)
+        });
+
+        it('diff with ranges', async () => {
+            const root = track.mkdirSync('diff-with-ranges');
+            const localUri = FileUri.create(root).toString();
+            const repository = { localUri };
+            await fs.createFile(path.join(root, 'A.txt'));
+            await fs.writeFile(path.join(root, 'A.txt'), 'A content', { encoding: 'utf8' });
+            await fs.createFile(path.join(root, 'B.txt'));
+            await fs.writeFile(path.join(root, 'B.txt'), 'B content', { encoding: 'utf8' });
+            await fs.mkdir(path.join(root, 'folder'));
+            await fs.createFile(path.join(root, 'folder', 'F1.txt'));
+            await fs.writeFile(path.join(root, 'folder', 'F1.txt'), 'F1 content', { encoding: 'utf8' });
+            await fs.createFile(path.join(root, 'folder', 'F2.txt'));
+            await fs.writeFile(path.join(root, 'folder', 'F2.txt'), 'F2 content', { encoding: 'utf8' });
+            const git = await createGit();
+
+            await init(git, repository);
+
+            const expectDiff: (fromRevision: string, toRevision: string, expected: ChangeDelta[], filePath?: string) => Promise<void> = async (fromRevision, toRevision, expected, filePath) => {
+                const range = { fromRevision, toRevision };
+                let uri: string | undefined;
+                if (filePath) {
+                    uri = FileUri.create(path.join(root, filePath)).toString();
+                }
+                const options: Git.Options.Diff = { range, uri };
+                const actual = (await git.diff(repository, options)).map(change => ChangeDelta.map(repository, change)).sort(ChangeDelta.compare);
+                expect(actual).to.be.deep.equal(expected, `Between ${fromRevision}..${toRevision}`);
+            };
+
+            await git.exec(repository, ['add', '.']);
+            await git.exec(repository, ['commit', '-m', '"Commit 1 on master."']); // HEAD~4
+
+            await git.exec(repository, ['checkout', '-b', 'new-branch']);
+            await fs.writeFile(path.join(root, 'A.txt'), 'updated A content', { encoding: 'utf8' });
+            await fs.unlink(path.join(root, 'B.txt'));
+            await git.exec(repository, ['add', '.']);
+            await git.exec(repository, ['commit', '-m', '"Commit 1 on new-branch."']); // new-branch~2
+
+            await fs.createFile(path.join(root, 'C.txt'));
+            await fs.writeFile(path.join(root, 'C.txt'), 'C content', { encoding: 'utf8' });
+            await git.exec(repository, ['add', '.']);
+            await git.exec(repository, ['commit', '-m', '"Commit 2 on new-branch."']); // new-branch~1
+
+            await fs.createFile(path.join(root, 'B.txt'));
+            await fs.writeFile(path.join(root, 'B.txt'), 'B content', { encoding: 'utf8' });
+            await git.exec(repository, ['add', '.']);
+            await git.exec(repository, ['commit', '-m', '"Commit 3 on new-branch."']); // new-branch
+
+            await git.exec(repository, ['checkout', 'master']);
+
+            await fs.createFile(path.join(root, 'C.txt'));
+            await fs.writeFile(path.join(root, 'C.txt'), 'C content', { encoding: 'utf8' });
+            await git.exec(repository, ['add', '.']);
+            await git.exec(repository, ['commit', '-m', '"Commit 2 on master."']); // HEAD~3
+
+            await fs.createFile(path.join(root, 'D.txt'));
+            await fs.writeFile(path.join(root, 'D.txt'), 'D content', { encoding: 'utf8' });
+            await git.exec(repository, ['add', '.']);
+            await git.exec(repository, ['commit', '-m', '"Commit 3 on master."']); // HEAD~2
+
+            await fs.unlink(path.join(root, 'B.txt'));
+            await git.exec(repository, ['add', '.']);
+            await git.exec(repository, ['commit', '-m', '"Commit 4 on master."']); // HEAD~1
+
+            await fs.unlink(path.join(root, 'folder', 'F1.txt'));
+            await fs.writeFile(path.join(root, 'folder', 'F2.txt'), 'updated F2 content', { encoding: 'utf8' });
+            await fs.createFile(path.join(root, 'folder', 'F3 with space.txt'));
+            await fs.writeFile(path.join(root, 'folder', 'F3 with space.txt'), 'F3 content', { encoding: 'utf8' });
+            await git.exec(repository, ['add', '.']);
+            await git.exec(repository, ['commit', '-m', '"Commit 5 on master."']); // HEAD
+
+            await expectDiff('HEAD~4', 'HEAD~3', [{ pathSegment: 'C.txt', status: GitFileStatus.New }]);
+            await expectDiff('HEAD~4', 'HEAD~2', [{ pathSegment: 'C.txt', status: GitFileStatus.New }, { pathSegment: 'D.txt', status: GitFileStatus.New }]);
+            await expectDiff('HEAD~4', 'HEAD~1', [{ pathSegment: 'B.txt', status: GitFileStatus.Deleted }, { pathSegment: 'C.txt', status: GitFileStatus.New }, { pathSegment: 'D.txt', status: GitFileStatus.New }]);
+            await expectDiff('HEAD~3', 'HEAD~2', [{ pathSegment: 'D.txt', status: GitFileStatus.New }]);
+            await expectDiff('HEAD~3', 'HEAD~1', [{ pathSegment: 'B.txt', status: GitFileStatus.Deleted }, { pathSegment: 'D.txt', status: GitFileStatus.New }]);
+            await expectDiff('HEAD~2', 'HEAD~1', [{ pathSegment: 'B.txt', status: GitFileStatus.Deleted }]);
+
+            await expectDiff('new-branch~2', 'new-branch~1', [{ pathSegment: 'C.txt', status: GitFileStatus.New }]);
+            await expectDiff('new-branch~2', 'new-branch', [{ pathSegment: 'B.txt', status: GitFileStatus.New }, { pathSegment: 'C.txt', status: GitFileStatus.New }]);
+            await expectDiff('new-branch~1', 'new-branch', [{ pathSegment: 'B.txt', status: GitFileStatus.New }]);
+
+            // Filter for a whole folder and its descendants.
+            await expectDiff('HEAD~4', 'HEAD~3', [], 'folder');
+            await expectDiff('HEAD~4', 'HEAD', [
+                { pathSegment: 'folder/F1.txt', status: GitFileStatus.Deleted },
+                { pathSegment: 'folder/F2.txt', status: GitFileStatus.Modified },
+                { pathSegment: 'folder/F3 with space.txt', status: GitFileStatus.New }],
+                'folder');
+
+            // Filter for a single file.
+            await expectDiff('HEAD~4', 'HEAD~3', [], 'folder/F1.txt');
+            await expectDiff('HEAD~4', 'HEAD', [
+                { pathSegment: 'folder/F1.txt', status: GitFileStatus.Deleted }],
+                'folder/F1.txt');
+
+            // Filter for a non-existing file.
+            await expectDiff('HEAD~4', 'HEAD~3', [], 'does not exist');
+            await expectDiff('HEAD~4', 'HEAD', [], 'does not exist');
+        });
+
+    });
+
+    describe('branch', () => {
+
+        it('should list the branch in chronological order', async () => {
+            const root = track.mkdirSync('branch-order');
+            const localUri = FileUri.create(root).toString();
+            const repository = { localUri };
+            const git = await createGit();
+
+            await createTestRepository(root);
+            await git.exec(repository, ['checkout', '-b', 'a']);
+            await git.exec(repository, ['checkout', 'master']);
+            await git.exec(repository, ['checkout', '-b', 'b']);
+            await git.exec(repository, ['checkout', 'master']);
+            await git.exec(repository, ['checkout', '-b', 'c']);
+            await git.exec(repository, ['checkout', 'master']);
+
+            expect((await git.branch(repository, { type: 'local' })).map(b => b.nameWithoutRemote)).to.be.deep.equal(['master', 'c', 'b', 'a']);
+        });
+
+    });
+
+    describe('ls-files', () => {
+
+        let git: Git;
+        let root: string;
+        let localUri: string;
+
+        before(async () => {
+            root = track.mkdirSync('ls-files');
+            localUri = FileUri.create(root).toString();
+            git = await createGit();
+            await createTestRepository(root);
+        });
+
+        ([
+            ['A.txt', true],
+            ['missing.txt', false],
+            ['../outside.txt', false],
+        ] as [string, boolean][]).forEach(test => {
+            const [relativePath, expectation] = test;
+            const message = `${expectation ? '' : 'not '}exist`;
+            it(`errorUnmatched - ${relativePath} should ${message}`, async () => {
+                const uri = relativePath.startsWith('.') ? relativePath : FileUri.create(path.join(root, relativePath)).toString();
+                const testMe = async () => git.lsFiles({ localUri }, uri, { errorUnmatch: true });
+                expect(await testMe()).to.be.equal(expectation);
+            });
+        });
+
+    });
+
 });
 
-async function createGit(): Promise<DugiteGit> {
-    const container = new Container();
-    const bind = container.bind.bind(container);
-    bindLogger(bind);
-    container.rebind(ILoggerServer).to(ConsoleLoggerServer).inSingletonScope();
-    bindGit(bind, {
-        bindManager(binding: interfaces.BindingToSyntax<{}>): interfaces.BindingWhenOnSyntax<{}> {
-            return binding.to(MockRepositoryManager).inSingletonScope();
-        },
-        bindWatcher(binding: interfaces.BindingToSyntax<{}>): interfaces.BindingWhenOnSyntax<{}> {
-            return binding.to(MockRepositoryWatcher);
-        }
+describe('log', function (): void {
+
+    // See https://github.com/eclipse-theia/theia/issues/2143
+    it('should not fail when executed from the repository root', async () => {
+        const git = await createGit();
+        const root = await createTestRepository(track.mkdirSync('log-test'));
+        const localUri = FileUri.create(root).toString();
+        const repository = { localUri };
+        const result = await git.log(repository, { uri: localUri });
+        expect(result.length).to.be.equal(1);
+        expect(result[0].author.email).to.be.equal('jon@doe.com');
     });
-    return container.get(DugiteGit);
+
+    it('should not fail when executed against an empty repository', async () => {
+        const git = await createGit();
+        const root = await initRepository(track.mkdirSync('empty-log-test'));
+        const localUri = FileUri.create(root).toString();
+        const repository = { localUri };
+        const result = await git.log(repository, { uri: localUri });
+        expect(result.length).to.be.equal(0);
+    });
+});
+
+function toPathSegment(repository: Repository, uri: string): string {
+    return upath.relative(FileUri.fsPath(repository.localUri), FileUri.fsPath(uri));
+}
+
+interface ChangeDelta {
+    readonly pathSegment: string;
+    readonly status: GitFileStatus;
+}
+
+namespace ChangeDelta {
+    export function compare(left: ChangeDelta, right: ChangeDelta): number {
+        const result = left.pathSegment.localeCompare(right.pathSegment);
+        if (result === 0) {
+            return left.status - right.status;
+        }
+        return result;
+    }
+    export function map(repository: Repository, fileChange: GitFileChange): ChangeDelta {
+        return {
+            pathSegment: toPathSegment(repository, fileChange.uri),
+            status: fileChange.status
+        };
+    }
 }

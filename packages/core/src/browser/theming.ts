@@ -1,70 +1,72 @@
-/*
+/********************************************************************************
  * Copyright (C) 2017 TypeFox and others.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
- */
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v. 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0.
+ *
+ * This Source Code may also be made available under the following Secondary
+ * Licenses when the conditions for such availability set forth in the Eclipse
+ * Public License v. 2.0 are satisfied: GNU General Public License, version 2
+ * with the GNU Classpath Exception which is available at
+ * https://www.gnu.org/software/classpath/license.html.
+ *
+ * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
+ ********************************************************************************/
 
 import { injectable, inject } from 'inversify';
 import { CommandRegistry, CommandContribution, CommandHandler, Command } from '../common/command';
-import { QuickOpenService } from './quick-open/quick-open-service';
-import { QuickOpenModel, QuickOpenItem, QuickOpenMode } from './quick-open/quick-open-model';
 import { Emitter, Event } from '../common/event';
+import { QuickOpenModel, QuickOpenItem, QuickOpenMode } from './quick-open/quick-open-model';
+import { QuickOpenService } from './quick-open/quick-open-service';
+import { FrontendApplicationConfigProvider } from './frontend-application-config-provider';
+import { MenuContribution, MenuModelRegistry } from '../common/';
+import { CommonMenus } from './common-frontend-contribution';
 
-const dark = require('../../src/browser/style/variables-dark.useable.css');
-const light = require('../../src/browser/style/variables-bright.useable.css');
+export const ThemeServiceSymbol = Symbol('ThemeService');
+
+export type ThemeType = 'light' | 'dark' | 'hc';
 
 export interface Theme {
-    id: string;
-    label: string;
-    description?: string;
-    editorTheme?: string;
+    readonly id: string;
+    readonly type: ThemeType;
+    readonly label: string;
+    readonly description?: string;
+    readonly editorTheme?: string;
     activate(): void;
     deactivate(): void;
 }
 
 export interface ThemeChangeEvent {
-    newTheme: Theme;
-    oldTheme?: Theme;
+    readonly newTheme: Theme;
+    readonly oldTheme?: Theme;
 }
-
-const darkTheme: Theme = {
-    id: 'dark',
-    label: 'Dark Theme',
-    description: 'Bright fonts on dark backgrounds.',
-    editorTheme: 'vs-dark',
-    activate() {
-        dark.use();
-    },
-    deactivate() {
-        dark.unuse();
-    }
-};
-
-const lightTheme: Theme = {
-    id: 'light',
-    label: 'Light Theme',
-    description: 'Dark fonts on light backgrounds.',
-    editorTheme: 'vs',
-    activate() {
-        light.use();
-    },
-    deactivate() {
-        light.unuse();
-    }
-};
 
 export class ThemeService {
 
     private themes: { [id: string]: Theme } = {};
     private activeTheme: Theme | undefined;
     private readonly themeChange = new Emitter<ThemeChangeEvent>();
-    public readonly onThemeChange: Event<ThemeChangeEvent> = this.themeChange.event;
 
-    protected constructor(private defaultTheme: string) { }
+    readonly onThemeChange: Event<ThemeChangeEvent> = this.themeChange.event;
 
-    register(theme: Theme) {
-        this.themes[theme.id] = theme;
+    static get(): ThemeService {
+        const global = window as any; // tslint:disable-line
+        return global[ThemeServiceSymbol] || new ThemeService();
+    }
+
+    protected constructor(
+        protected _defaultTheme: string | undefined = FrontendApplicationConfigProvider.get().defaultTheme,
+        protected fallbackTheme: string = 'dark'
+    ) {
+        const global = window as any; // tslint:disable-line
+        global[ThemeServiceSymbol] = this;
+    }
+
+    register(...themes: Theme[]): void {
+        for (const theme of themes) {
+            this.themes[theme.id] = theme;
+        }
     }
 
     getThemes(): Theme[] {
@@ -77,53 +79,85 @@ export class ThemeService {
         return result;
     }
 
-    setCurrentTheme(themeId: string) {
-        const newTheme = this.themes[themeId] || this.themes[this.defaultTheme];
+    getTheme(themeId: string): Theme {
+        return this.themes[themeId] || this.defaultTheme;
+    }
+
+    startupTheme(): void {
+        const theme = this.getCurrentTheme();
+        theme.activate();
+    }
+
+    loadUserTheme(): void {
+        const theme = this.getCurrentTheme();
+        this.setCurrentTheme(theme.id);
+    }
+
+    setCurrentTheme(themeId: string): void {
+        const newTheme = this.getTheme(themeId);
         const oldTheme = this.activeTheme;
         if (oldTheme) {
+            if (oldTheme.id === newTheme.id) {
+                return;
+            }
             oldTheme.deactivate();
         }
         newTheme.activate();
         this.activeTheme = newTheme;
+        window.localStorage.setItem('theme', themeId);
         this.themeChange.fire({
             newTheme, oldTheme
         });
-        window.localStorage.setItem('theme', themeId);
     }
 
     getCurrentTheme(): Theme {
-        const themeId = window.localStorage.getItem('theme') || this.defaultTheme;
-        return this.themes[themeId] || this.themes[this.defaultTheme];
+        const themeId = window.localStorage.getItem('theme') || this.defaultTheme.id;
+        return this.getTheme(themeId);
     }
 
-    static get() {
-        // tslint:disable-next-line:no-any
-        const wnd = window as any;
-        if (!wnd.__themeService) {
-            const themeService = new ThemeService('dark');
-            wnd.__themeService = themeService;
-        }
-        return wnd.__themeService as ThemeService;
+    /**
+     * The default theme. If that is not applicable, returns with the fallback theme.
+     */
+    get defaultTheme(): Theme {
+        return this.themes[this._defaultTheme || this.fallbackTheme] || this.themes[this.fallbackTheme];
     }
+
+    /**
+     * Resets the state to the user's default, or to the fallback theme. Also discards any persisted state in the local storage.
+     */
+    reset(): void {
+        this.setCurrentTheme(this.defaultTheme.id);
+    }
+
 }
-ThemeService.get().register(darkTheme);
-ThemeService.get().register(lightTheme);
 
 @injectable()
-export class ThemingCommandContribution implements CommandContribution, CommandHandler, Command, QuickOpenModel {
+export class ThemingCommandContribution implements CommandContribution, MenuContribution, CommandHandler, Command, QuickOpenModel {
 
     id = 'change_theme';
+    category = 'Settings';
     label = 'Change Color Theme';
     private resetTo: string | undefined;
-    private themeService = ThemeService.get();
 
-    constructor( @inject(QuickOpenService) protected openService: QuickOpenService) { }
+    @inject(ThemeService)
+    protected readonly themeService: ThemeService;
+
+    @inject(QuickOpenService)
+    protected readonly openService: QuickOpenService;
 
     registerCommands(commands: CommandRegistry): void {
         commands.registerCommand(this, this);
     }
 
-    execute() {
+    registerMenus(menus: MenuModelRegistry): void {
+        menus.registerMenuAction(CommonMenus.FILE_SETTINGS_SUBMENU_THEME, {
+            commandId: this.id,
+            label: this.label,
+            order: 'a30'
+        });
+    }
+
+    execute(): void {
         this.resetTo = this.themeService.getCurrentTheme().id;
         this.openService.open(this, {
             placeholder: 'Select Color Theme (Up/Down Keys to Preview)',
@@ -137,15 +171,10 @@ export class ThemingCommandContribution implements CommandContribution, CommandH
         });
     }
 
-    private activeIndex() {
+    private activeIndex(): number {
         const current = this.themeService.getCurrentTheme().id;
         const themes = this.themeService.getThemes();
-        for (let i = 0; i < themes.length; i++) {
-            if (themes[i].id === current) {
-                return i;
-            }
-        }
-        return -1;
+        return themes.findIndex(theme => theme.id === current);
     }
 
     onType(lookFor: string, acceptor: (items: QuickOpenItem[]) => void): void {
@@ -163,4 +192,44 @@ export class ThemingCommandContribution implements CommandContribution, CommandH
             }));
         acceptor(items);
     }
+}
+
+export class BuiltinThemeProvider {
+
+    // Webpack converts these `require` in some Javascript object that wraps the `.css` files
+    static readonly darkCss = require('../../src/browser/style/variables-dark.useable.css');
+    static readonly lightCss = require('../../src/browser/style/variables-bright.useable.css');
+
+    static readonly darkTheme: Theme = {
+        id: 'dark',
+        type: 'dark',
+        label: 'Dark Theme',
+        description: 'Bright fonts on dark backgrounds.',
+        editorTheme: 'dark-plus', // loaded in /packages/monaco/src/browser/textmate/monaco-theme-registry.ts
+        activate(): void {
+            BuiltinThemeProvider.darkCss.use();
+        },
+        deactivate(): void {
+            BuiltinThemeProvider.darkCss.unuse();
+        }
+    };
+
+    static readonly lightTheme: Theme = {
+        id: 'light',
+        type: 'light',
+        label: 'Light Theme',
+        description: 'Dark fonts on light backgrounds.',
+        editorTheme: 'light-plus', // loaded in /packages/monaco/src/browser/textmate/monaco-theme-registry.ts
+        activate(): void {
+            BuiltinThemeProvider.lightCss.use();
+        },
+        deactivate(): void {
+            BuiltinThemeProvider.lightCss.unuse();
+        }
+    };
+
+    static readonly themes = [
+        BuiltinThemeProvider.darkTheme,
+        BuiltinThemeProvider.lightTheme,
+    ];
 }

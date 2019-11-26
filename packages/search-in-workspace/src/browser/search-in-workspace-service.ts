@@ -1,15 +1,23 @@
-/*
- * Copyright (C) 2017-2018 Erisson and others.
+/********************************************************************************
+ * Copyright (C) 2017-2018 Ericsson and others.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
- */
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v. 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0.
+ *
+ * This Source Code may also be made available under the following Secondary
+ * Licenses when the conditions for such availability set forth in the Eclipse
+ * Public License v. 2.0 are satisfied: GNU General Public License, version 2
+ * with the GNU Classpath Exception which is available at
+ * https://www.gnu.org/software/classpath/license.html.
+ *
+ * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
+ ********************************************************************************/
 
-import { injectable, inject } from "inversify";
-import { SearchInWorkspaceServer, SearchInWorkspaceClient, SearchInWorkspaceResult, SearchInWorkspaceOptions } from "../common/search-in-workspace-interface";
-import { WorkspaceService } from "@theia/workspace/lib/browser";
-import URI from "@theia/core/lib/common/uri";
-import { ILogger } from "@theia/core";
+import { injectable, inject, postConstruct } from 'inversify';
+import { SearchInWorkspaceServer, SearchInWorkspaceClient, SearchInWorkspaceResult, SearchInWorkspaceOptions } from '../common/search-in-workspace-interface';
+import { WorkspaceService } from '@theia/workspace/lib/browser';
+import { ILogger } from '@theia/core';
 
 /**
  * Class that will receive the search results from the server.  This is separate
@@ -28,7 +36,7 @@ export class SearchInWorkspaceClientImpl implements SearchInWorkspaceClient {
         this.service.onDone(searchId, error);
     }
 
-    setService(service: SearchInWorkspaceClient) {
+    setService(service: SearchInWorkspaceClient): void {
         this.service = service;
     }
 }
@@ -56,13 +64,18 @@ export class SearchInWorkspaceService implements SearchInWorkspaceClient {
 
     private lastKnownSearchId: number = -1;
 
-    constructor(
-        @inject(SearchInWorkspaceServer) protected readonly searchServer: SearchInWorkspaceServer,
-        @inject(SearchInWorkspaceClientImpl) protected readonly client: SearchInWorkspaceClientImpl,
-        @inject(WorkspaceService) protected readonly workspaceService: WorkspaceService,
-        @inject(ILogger) protected readonly logger: ILogger,
-    ) {
-        client.setService(this);
+    @inject(SearchInWorkspaceServer) protected readonly searchServer: SearchInWorkspaceServer;
+    @inject(SearchInWorkspaceClientImpl) protected readonly client: SearchInWorkspaceClientImpl;
+    @inject(WorkspaceService) protected readonly workspaceService: WorkspaceService;
+    @inject(ILogger) protected readonly logger: ILogger;
+
+    @postConstruct()
+    protected init(): void {
+        this.client.setService(this);
+    }
+
+    isEnabled(): boolean {
+        return this.workspaceService.opened;
     }
 
     onResult(searchId: number, result: SearchInWorkspaceResult): void {
@@ -92,14 +105,12 @@ export class SearchInWorkspaceService implements SearchInWorkspaceClient {
 
     // Start a search of the string "what" in the workspace.
     async search(what: string, callbacks: SearchInWorkspaceCallbacks, opts?: SearchInWorkspaceOptions): Promise<number> {
-        const root = await this.workspaceService.root;
-
-        if (!root) {
-            throw new Error("Search failed: no workspace root.");
+        if (!this.workspaceService.open) {
+            throw new Error('Search failed: no workspace root.');
         }
 
-        const rootUri = new URI(root.uri);
-        const searchId = await this.searchServer.search(what, rootUri.path.toString(), opts);
+        const roots = await this.workspaceService.roots;
+        const searchId = await this.searchServer.search(what, roots.map(r => r.uri), opts);
         this.pendingSearches.set(searchId, callbacks);
         this.lastKnownSearchId = searchId;
 
@@ -122,7 +133,7 @@ export class SearchInWorkspaceService implements SearchInWorkspaceClient {
     }
 
     // Cancel an ongoing search.
-    cancel(searchId: number) {
+    cancel(searchId: number): void {
         this.pendingSearches.delete(searchId);
         this.searchServer.cancel(searchId);
     }

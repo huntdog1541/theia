@@ -1,11 +1,20 @@
-/*
+/********************************************************************************
  * Copyright (C) 2017 Ericsson and others.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
- */
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v. 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0.
+ *
+ * This Source Code may also be made available under the following Secondary
+ * Licenses when the conditions for such availability set forth in the Eclipse
+ * Public License v. 2.0 are satisfied: GNU General Public License, version 2
+ * with the GNU Classpath Exception which is available at
+ * https://www.gnu.org/software/classpath/license.html.
+ *
+ * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
+ ********************************************************************************/
 
-import { inject, injectable } from 'inversify';
+import { inject, injectable, named } from 'inversify';
 import { ILogger } from '@theia/core/lib/common/logger';
 import {
     ITerminalServer,
@@ -20,18 +29,23 @@ export class TerminalServer extends BaseTerminalServer implements ITerminalServe
     constructor(
         @inject(TerminalProcessFactory) protected readonly terminalFactory: TerminalProcessFactory,
         @inject(ProcessManager) protected readonly processManager: ProcessManager,
-        @inject(ILogger) protected readonly logger: ILogger) {
+        @inject(ILogger) @named('terminal') protected readonly logger: ILogger
+    ) {
         super(processManager, logger);
     }
 
     create(options: ITerminalServerOptions): Promise<number> {
-        try {
+        return new Promise<number>((resolve, reject) => {
             const term = this.terminalFactory(options);
-            this.postCreate(term);
-            return Promise.resolve(term.id);
-        } catch (error) {
-            this.logger.error(`Error while creating terminal: ${error}`);
-            return Promise.resolve(-1);
-        }
+            term.onStart(_ => {
+                this.postCreate(term);
+                resolve(term.id);
+            });
+            term.onError(error => {
+                this.logger.error('Error while creating terminal', error);
+                resolve(-1);
+            });
+        });
+
     }
 }

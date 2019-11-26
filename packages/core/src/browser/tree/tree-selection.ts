@@ -1,60 +1,144 @@
-/*
+/********************************************************************************
  * Copyright (C) 2017 TypeFox and others.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
- */
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v. 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0.
+ *
+ * This Source Code may also be made available under the following Secondary
+ * Licenses when the conditions for such availability set forth in the Eclipse
+ * Public License v. 2.0 are satisfied: GNU General Public License, version 2
+ * with the GNU Classpath Exception which is available at
+ * https://www.gnu.org/software/classpath/license.html.
+ *
+ * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
+ ********************************************************************************/
 
-import { injectable, inject } from "inversify";
-import { Event, Emitter, Disposable, SelectionProvider } from "../../common";
-import { ITree, ITreeNode } from "./tree";
-
-export const ITreeSelectionService = Symbol("ITreeSelectionService");
+import { TreeNode } from './tree';
+import { Event, Disposable, SelectionProvider } from '../../common';
 
 /**
  * The tree selection service.
  */
-export interface ITreeSelectionService extends Disposable, SelectionProvider<Readonly<ISelectableTreeNode> | undefined> {
+export const TreeSelectionService = Symbol('TreeSelectionService');
+export interface TreeSelectionService extends Disposable, SelectionProvider<ReadonlyArray<Readonly<SelectableTreeNode>>> {
+
     /**
-     * The node selected in the tree. If defined then valid.
-     * Undefined if there is no node selection.
+     * The tree selection, representing the selected nodes from the tree. If nothing is selected, the
+     * result will be empty.
      */
-    readonly selectedNode: Readonly<ISelectableTreeNode> | undefined;
+    readonly selectedNodes: ReadonlyArray<Readonly<SelectableTreeNode>>;
+
     /**
-     * Emit when the node selection is changed.
+     * Emitted when the selection has changed in the tree.
      */
-    readonly onSelectionChanged: Event<Readonly<ISelectableTreeNode> | undefined>;
+    readonly onSelectionChanged: Event<ReadonlyArray<Readonly<SelectableTreeNode>>>;
+
     /**
-     * Select a given node.
-     * If a given node is undefined or invalid then remove the node selection.
+     * Registers the given selection into the tree selection service. If the selection state changes after adding the
+     * `selectionOrTreeNode` argument, a selection changed event will be fired. If the argument is a tree node,
+     * a it will be treated as a tree selection with the default selection type.
      */
-    selectNode(node: Readonly<ISelectableTreeNode> | undefined): void;
+    addSelection(selectionOrTreeNode: TreeSelection | Readonly<SelectableTreeNode>): void;
+
+    /**
+     * Store selection state.
+     */
+    storeState(): object;
+
+    /**
+     * Restore selection state.
+     */
+    restoreState(state: object): void;
+
 }
 
 /**
- * The selectable tree node.
+ * Representation of a tree selection.
  */
-export interface ISelectableTreeNode extends ITreeNode {
+export interface TreeSelection {
+
     /**
-     * Test whether this node is selected.
+     * The actual item that has been selected.
      */
-    selected: boolean;
+    readonly node: Readonly<SelectableTreeNode>;
+
+    /**
+     * The optional tree selection type. Defaults to `SelectionType.DEFAULT`;
+     */
+    readonly type?: TreeSelection.SelectionType;
+
 }
 
-export namespace ISelectableTreeNode {
-    export function is(node: ITreeNode | undefined): node is ISelectableTreeNode {
+export namespace TreeSelection {
+
+    /**
+     * Enumeration of selection types.
+     */
+    export enum SelectionType {
+        DEFAULT,
+        TOGGLE,
+        RANGE
+    }
+
+    export function is(arg: Object | undefined): arg is TreeSelection {
+        return !!arg && 'node' in arg;
+    }
+
+    export function isRange(arg: TreeSelection | SelectionType | undefined): boolean {
+        return isSelectionTypeOf(arg, SelectionType.RANGE);
+    }
+
+    export function isToggle(arg: TreeSelection | SelectionType | undefined): boolean {
+        return isSelectionTypeOf(arg, SelectionType.TOGGLE);
+    }
+
+    function isSelectionTypeOf(arg: TreeSelection | SelectionType | undefined, expected: SelectionType): boolean {
+        if (arg === undefined) {
+            return false;
+        }
+        const type = typeof arg === 'number' ? arg : arg.type;
+        return type === expected;
+    }
+
+}
+
+/**
+ * A selectable tree node.
+ */
+export interface SelectableTreeNode extends TreeNode {
+
+    /**
+     * `true` if the tree node is selected. Otherwise, `false`.
+     */
+    selected: boolean;
+
+    /**
+     * `true` if the tree node has the focus. Otherwise, `false`. Defaults to `false`.
+     */
+    focus?: boolean;
+
+}
+
+export namespace SelectableTreeNode {
+
+    export function is(node: TreeNode | undefined): node is SelectableTreeNode {
         return !!node && 'selected' in node;
     }
 
-    export function isSelected(node: ITreeNode | undefined): node is ISelectableTreeNode {
+    export function isSelected(node: TreeNode | undefined): node is SelectableTreeNode {
         return is(node) && node.selected;
     }
 
-    export function isVisible(node: ITreeNode | undefined): node is ISelectableTreeNode {
-        return is(node) && ITreeNode.isVisible(node);
+    export function hasFocus(node: TreeNode | undefined): boolean {
+        return is(node) && node.focus === true;
     }
 
-    export function getVisibleParent(node: ITreeNode | undefined): ISelectableTreeNode | undefined {
+    export function isVisible(node: TreeNode | undefined): node is SelectableTreeNode {
+        return is(node) && TreeNode.isVisible(node);
+    }
+
+    export function getVisibleParent(node: TreeNode | undefined): SelectableTreeNode | undefined {
         if (node) {
             if (isVisible(node.parent)) {
                 return node.parent;
@@ -62,50 +146,4 @@ export namespace ISelectableTreeNode {
             return getVisibleParent(node.parent);
         }
     }
-}
-
-@injectable()
-export class TreeSelectionService implements ITreeSelectionService {
-
-    protected _selectedNode: ISelectableTreeNode | undefined;
-    protected readonly onSelectionChangedEmitter = new Emitter<ISelectableTreeNode | undefined>();
-
-    constructor( @inject(ITree) protected readonly tree: ITree) { }
-
-    dispose() {
-        this.onSelectionChangedEmitter.dispose();
-    }
-
-    get selectedNode(): ISelectableTreeNode | undefined {
-        return this._selectedNode;
-    }
-
-    get onSelectionChanged(): Event<ISelectableTreeNode | undefined> {
-        return this.onSelectionChangedEmitter.event;
-    }
-
-    protected fireSelectionChanged(): void {
-        this.onSelectionChangedEmitter.fire(this._selectedNode);
-    }
-
-    selectNode(raw: ISelectableTreeNode | undefined): void {
-        const node = this.tree.validateNode(raw);
-        if (ISelectableTreeNode.is(node)) {
-            this.doSelectNode(node);
-        } else {
-            this.doSelectNode(undefined);
-        }
-    }
-
-    protected doSelectNode(node: ISelectableTreeNode | undefined): void {
-        if (this._selectedNode) {
-            this._selectedNode.selected = false;
-        }
-        this._selectedNode = node;
-        if (node) {
-            node.selected = true;
-        }
-        this.fireSelectionChanged();
-    }
-
 }

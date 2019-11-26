@@ -1,6 +1,6 @@
 # Theia - Keymaps Extension
 
-See [here](https://github.com/theia-ide/theia) for a detailed documentation.
+See [here](https://www.theia-ide.org/doc/index.html) for a detailed documentation.
 
 An extension that allows the user to reconfigure default keybindings with custom keymaps. By modifying the appropriate `keymaps.json`, the user can modify existing keybindings, or add keybindings to commands that do not yet have a keybinding associated to them.
 
@@ -28,6 +28,12 @@ You can also use the following strings for special keys: `backspace`, `tab`, `en
 
 If unsure you can always look at [keys.ts](../core/src/common/keys.ts#207) to see if a string is supported.
 
+## Key sequences
+
+Key sequences like: `ctrl+x ctrl+a` or `ctrl+a b c` are supported.  With the following limitations:
+ - If the key sequence exceeds 1 key chord it won't show in the electron menu.
+ - If the key sequence exceeds 2 key chords it won't show in the command palette.
 
 ## License
-[Apache-2.0](https://github.com/theia-ide/theia/blob/master/LICENSE)
+- [Eclipse Public License 2.0](http://www.eclipse.org/legal/epl-2.0/)
+- [一 (Secondary) GNU General Public License, version 2 with the GNU Classpath Exception](https://projects.eclipse.org/license/secondary-gpl-2.0-cp)

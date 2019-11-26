@@ -1,9 +1,18 @@
-/*
+/********************************************************************************
  * Copyright (C) 2017 Ericsson and others.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
- */
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v. 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0.
+ *
+ * This Source Code may also be made available under the following Secondary
+ * Licenses when the conditions for such availability set forth in the Eclipse
+ * Public License v. 2.0 are satisfied: GNU General Public License, version 2
+ * with the GNU Classpath Exception which is available at
+ * https://www.gnu.org/software/classpath/license.html.
+ *
+ * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
+ ********************************************************************************/
 
 import * as stream from 'stream';
 import { inject, injectable } from 'inversify';
@@ -30,18 +39,18 @@ export class MultiRingBufferReadableStream extends stream.Readable implements Di
         this.setEncoding(encoding);
     }
 
-    _read(size: number) {
+    _read(size: number): void {
         this.more = true;
         this.deq(size);
     }
 
-    onData() {
+    onData(): void {
         if (this.more === true) {
             this.deq(-1);
         }
     }
 
-    deq(size: number) {
+    deq(size: number): void {
         if (this.disposed === true) {
             return;
         }
@@ -56,7 +65,7 @@ export class MultiRingBufferReadableStream extends stream.Readable implements Di
         while (buffer !== undefined && this.more === true && this.disposed === false);
     }
 
-    dispose() {
+    dispose(): void {
         this.ringBuffer.closeStream(this);
         this.ringBuffer.closeReader(this.reader);
         this.disposed = true;
@@ -87,14 +96,16 @@ export class MultiRingBuffer {
     protected readonly streams: Map<MultiRingBufferReadableStream, number>;
     protected readerId = 0;
 
-    constructor( @inject(MultiRingBufferOptions) protected readonly options: MultiRingBufferOptions) {
+    constructor(
+        @inject(MultiRingBufferOptions) protected readonly options: MultiRingBufferOptions
+    ) {
         this.maxSize = options.size;
         if (options.encoding !== undefined) {
             this.encoding = options.encoding;
         } else {
             this.encoding = 'utf8';
         }
-        this.buffer = Buffer.alloc(this.maxSize, this.encoding);
+        this.buffer = Buffer.alloc(this.maxSize);
         this.readers = new Map();
         this.streams = new Map();
     }
@@ -135,12 +146,12 @@ export class MultiRingBuffer {
         this.onData(startHead);
     }
 
-    getReader() {
+    getReader(): number {
         this.readers.set(this.readerId, this.tail);
         return this.readerId++;
     }
 
-    closeReader(id: number) {
+    closeReader(id: number): void {
         this.readers.delete(id);
     }
 
@@ -151,11 +162,11 @@ export class MultiRingBuffer {
         return astream;
     }
 
-    closeStream(astream: MultiRingBufferReadableStream) {
+    closeStream(astream: MultiRingBufferReadableStream): void {
         this.streams.delete(<MultiRingBufferReadableStream>astream);
     }
 
-    protected onData(start: number) {
+    protected onData(start: number): void {
         /*  Any stream that has read everything already
          *  Should go back to the last buffer in start offset */
         for (const [id, pos] of this.readers) {
@@ -179,7 +190,7 @@ export class MultiRingBuffer {
             return undefined;
         }
 
-        let buffer = "";
+        let buffer = '';
         const maxDeqSize = this.sizeForReader(id);
         const wrapped = this.isWrapped(pos, this.head);
 
@@ -190,7 +201,7 @@ export class MultiRingBuffer {
             deqSize = Math.min(size, maxDeqSize);
         }
 
-        if (wrapped === false) { // no warp
+        if (wrapped === false) { // no wrap
             buffer = this.buffer.toString(encoding, pos, pos + deqSize);
         } else { // wrap
             buffer = buffer.concat(this.buffer.toString(encoding, pos, this.maxSize),
@@ -208,7 +219,7 @@ export class MultiRingBuffer {
         return buffer;
     }
 
-    sizeForReader(id: number) {
+    sizeForReader(id: number): number {
         const pos = this.readers.get(id);
         if (pos === undefined) {
             return 0;
@@ -217,18 +228,18 @@ export class MultiRingBuffer {
         return this.sizeFrom(pos, this.head, this.isWrapped(pos, this.head));
     }
 
-    size() {
+    size(): number {
         return this.sizeFrom(this.tail, this.head, this.isWrapped(this.tail, this.head));
     }
 
-    protected isWrapped(from: number, to: number) {
+    protected isWrapped(from: number, to: number): boolean {
         if (to < from) {
             return true;
         } else {
             return false;
         }
     }
-    protected sizeFrom(from: number, to: number, wrap: boolean) {
+    protected sizeFrom(from: number, to: number, wrap: boolean): number {
         if (from === -1 || to === -1) {
             return 0;
         } else {
@@ -240,7 +251,7 @@ export class MultiRingBuffer {
         }
     }
 
-    emptyForReader(id: number) {
+    emptyForReader(id: number): boolean {
         const pos = this.readers.get(id);
         if (pos === undefined || pos === -1) {
             return true;
@@ -266,7 +277,7 @@ export class MultiRingBuffer {
     }
 
     /* Position should be incremented if it goes pass end.  */
-    protected shouldIncPos(pos: number, end: number, size: number) {
+    protected shouldIncPos(pos: number, end: number, size: number): boolean {
         const { newPos: newHead, wrap } = this.inc(end, size);
 
         /* Tail Head */
@@ -300,7 +311,7 @@ export class MultiRingBuffer {
     }
 
     /* Increment the main tail and all the reader positions. */
-    protected incTails(size: number) {
+    protected incTails(size: number): void {
         this.tail = this.incTail(this.tail, size).newPos;
 
         for (const [id, pos] of this.readers) {

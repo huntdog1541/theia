@@ -1,40 +1,16 @@
-/*---------------------------------------------------------------------------------------------
- *  Copyright (c) Microsoft Corporation. All rights reserved.
- *  Licensed under the MIT License. See License.txt in the project root for license information.
- *--------------------------------------------------------------------------------------------*/
-
-declare module 'nsfw' {
-	interface NsfwWatcher {
-		start(): any;
-		stop(): any;
-	}
-
-	interface NsfwWatchingPromise {
-		then(): void;
-	}
-
-	interface NsfwStartWatchingPromise {
-		then(fn: (watcher: NsfwWatcher) => void): NsfwWatchingPromise;
-	}
-
-	interface NsfwEvent {
-		action: number;
-		directory: string;
-		file?: string;
-		newFile?: string;
-		oldFile?: string;
-	}
-
-	interface NsfwFunction {
-		(dir: string, eventHandler: (events: NsfwEvent[]) => void, options?: any): NsfwStartWatchingPromise;
-		actions: {
-			CREATED: number;
-			DELETED: number;
-			MODIFIED: number;
-			RENAMED: number;
-		}
-	}
-
-	var nsfw: NsfwFunction;
-	export = nsfw;
-}
+/********************************************************************************
+ * Copyright (C) 2018 Ericsson and others.
+ *
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v. 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0.
+ *
+ * This Source Code may also be made available under the following Secondary
+ * Licenses when the conditions for such availability set forth in the Eclipse
+ * Public License v. 2.0 are satisfied: GNU General Public License, version 2
+ * with the GNU Classpath Exception which is available at
+ * https://www.gnu.org/software/classpath/license.html.
+ *
+ * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
+ ********************************************************************************/
+/// <reference types="@theia/core/src/typings/nsfw/index"/>

@@ -1,97 +1,42 @@
-/*
+/********************************************************************************
  * Copyright (C) 2017 TypeFox and others.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v. 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0.
+ *
+ * This Source Code may also be made available under the following Secondary
+ * Licenses when the conditions for such availability set forth in the Eclipse
+ * Public License v. 2.0 are satisfied: GNU General Public License, version 2
+ * with the GNU Classpath Exception which is available at
+ * https://www.gnu.org/software/classpath/license.html.
+ *
+ * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
+ ********************************************************************************/
+
+import * as common from '../../common/quick-open-model';
+
+/**
+ * @deprecated import from `@theia/core/lib/common/quick-open-model` instead
  */
+export type Highlight = common.Highlight;
 
-import URI from "../../common/uri";
-import { Keybinding } from '../../common/keybinding';
+/**
+ * @deprecated import from `@theia/core/lib/common/quick-open-model` instead
+ */
+export type QuickOpenItemOptions = common.QuickOpenItemOptions;
 
-export interface Highlight {
-    start: number
-    end: number
-}
+/**
+ * @deprecated import from `@theia/core/lib/common/quick-open-model` instead
+ */
+export type QuickOpenGroupItemOptions = common.QuickOpenGroupItemOptions;
 
-export enum QuickOpenMode {
-    PREVIEW,
-    OPEN,
-    OPEN_IN_BACKGROUND
-}
+/**
+ * @deprecated import from `@theia/core/lib/common/quick-open-model` instead
+ */
+export { QuickOpenItem, QuickOpenGroupItem, QuickOpenMode } from '../../common/quick-open-model';
 
-export interface QuickOpenItemOptions {
-    tooltip?: string;
-    label?: string;
-    labelHighlights?: Highlight[];
-    description?: string;
-    descriptionHighlights?: Highlight[];
-    detail?: string;
-    detailHighlights?: Highlight[];
-    hidden?: boolean;
-    uri?: URI;
-    iconClass?: string;
-    keybinding?: Keybinding;
-    run?(mode: QuickOpenMode): boolean;
-}
-
-export class QuickOpenItem {
-
-    private options: QuickOpenItemOptions;
-
-    constructor(options?: QuickOpenItemOptions) {
-        this.options = options || {};
-    }
-
-    getTooltip(): string | undefined {
-        return this.options.tooltip || this.getLabel();
-    }
-    getLabel(): string | undefined {
-        return this.options.label;
-    }
-    getLabelHighlights(): Highlight[] {
-        return this.options.labelHighlights || [];
-    }
-    getDescription(): string | undefined {
-        return this.options.description;
-    }
-    getDescriptionHighlights(): Highlight[] | undefined {
-        return this.options.descriptionHighlights;
-    }
-    getDetail(): string | undefined {
-        return this.options.detail;
-    }
-    getDetailHighlights(): Highlight[] | undefined {
-        return this.options.detailHighlights;
-    }
-    isHidden(): boolean {
-        return this.options.hidden || false;
-    }
-    getUri(): URI | undefined {
-        return this.options.uri;
-    }
-    getIconClass(): string | undefined {
-        return this.options.iconClass;
-    }
-    getKeybinding(): Keybinding | undefined {
-        return this.options.keybinding;
-    }
-    run(mode: QuickOpenMode): boolean {
-        if (!this.options.run) {
-            return false;
-        }
-        return this.options.run(mode);
-    }
-}
-
-export class QuickOpenGroupItem extends QuickOpenItem {
-    getGroupLabel(): string | undefined {
-        return undefined;
-    }
-    showBorder(): boolean {
-        return false;
-    }
-}
-
-export interface QuickOpenModel {
-    onType(lookFor: string, acceptor: (items: QuickOpenItem[]) => void): void;
-}
+/**
+ * @deprecated import from `@theia/core/lib/common/quick-open-model` instead
+ */
+export type QuickOpenModel = common.QuickOpenModel;

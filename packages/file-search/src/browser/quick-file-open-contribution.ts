@@ -1,27 +1,45 @@
-/*
+/********************************************************************************
  * Copyright (C) 2017 TypeFox and others.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
- */
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v. 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0.
+ *
+ * This Source Code may also be made available under the following Secondary
+ * Licenses when the conditions for such availability set forth in the Eclipse
+ * Public License v. 2.0 are satisfied: GNU General Public License, version 2
+ * with the GNU Classpath Exception which is available at
+ * https://www.gnu.org/software/classpath/license.html.
+ *
+ * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
+ ********************************************************************************/
 
 import { injectable, inject } from 'inversify';
-import { QuickFileOpenService } from './quick-file-open';
-import { Command, CommandRegistry, CommandContribution, KeybindingRegistry, KeybindingContribution } from '@theia/core/lib/common';
-
-export const quickFileOpen: Command = {
-    id: 'file-search.openFile',
-    label: 'Open File ...'
-};
+import URI from '@theia/core/lib/common/uri';
+import { QuickFileOpenService, quickFileOpen } from './quick-file-open';
+import { CommandRegistry, CommandContribution } from '@theia/core/lib/common';
+import { KeybindingRegistry, KeybindingContribution, QuickOpenContribution, QuickOpenHandlerRegistry } from '@theia/core/lib/browser';
 
 @injectable()
-export class QuickFileOpenFrontendContribution implements CommandContribution, KeybindingContribution {
+export class QuickFileOpenFrontendContribution implements CommandContribution, KeybindingContribution, QuickOpenContribution {
 
-    constructor( @inject(QuickFileOpenService) protected readonly quickFileOpenService: QuickFileOpenService) { }
+    @inject(QuickFileOpenService)
+    protected readonly quickFileOpenService: QuickFileOpenService;
 
     registerCommands(commands: CommandRegistry): void {
         commands.registerCommand(quickFileOpen, {
-            execute: () => this.quickFileOpenService.open(),
+            // tslint:disable-next-line:no-any
+            execute: (...args: any[]) => {
+                let fileURI: string | undefined;
+                if (args) {
+                    [fileURI] = args;
+                }
+                if (fileURI) {
+                    this.quickFileOpenService.openFile(new URI(fileURI));
+                } else {
+                    this.quickFileOpenService.open();
+                }
+            },
             isEnabled: () => this.quickFileOpenService.isEnabled()
         });
     }
@@ -29,8 +47,11 @@ export class QuickFileOpenFrontendContribution implements CommandContribution, K
     registerKeybindings(keybindings: KeybindingRegistry): void {
         keybindings.registerKeybinding({
             command: quickFileOpen.id,
-            keybinding: "ctrlcmd+p"
+            keybinding: 'ctrlcmd+p'
         });
     }
 
+    registerQuickOpenHandlers(handlers: QuickOpenHandlerRegistry): void {
+        handlers.registerHandler(this.quickFileOpenService, true);
+    }
 }

@@ -1,21 +1,30 @@
-/*
+/********************************************************************************
  * Copyright (C) 2017 TypeFox and others.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
- */
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v. 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0.
+ *
+ * This Source Code may also be made available under the following Secondary
+ * Licenses when the conditions for such availability set forth in the Eclipse
+ * Public License v. 2.0 are satisfied: GNU General Public License, version 2
+ * with the GNU Classpath Exception which is available at
+ * https://www.gnu.org/software/classpath/license.html.
+ *
+ * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
+ ********************************************************************************/
 
-import URI from "../common/uri";
+import URI from '../common/uri';
 
 /**
- * An endpoint provides URLs for http and ws, based on configuration ansd defaults.
+ * An endpoint provides URLs for http and ws, based on configuration and defaults.
  */
 export class Endpoint {
-    static readonly PROTO_HTTPS: string = "https:";
-    static readonly PROTO_HTTP: string = "http:";
-    static readonly PROTO_WS: string = "ws:";
-    static readonly PROTO_WSS: string = "wss:";
-    static readonly PROTO_FILE: string = "file:";
+    static readonly PROTO_HTTPS: string = 'https:';
+    static readonly PROTO_HTTP: string = 'http:';
+    static readonly PROTO_WS: string = 'ws:';
+    static readonly PROTO_WSS: string = 'wss:';
+    static readonly PROTO_FILE: string = 'file:';
 
     constructor(
         protected readonly options: Endpoint.Options = {},
@@ -30,7 +39,7 @@ export class Endpoint {
         return new URI(`${this.httpScheme}//${this.host}${this.pathname}${this.path}`);
     }
 
-    protected get pathname() {
+    protected get pathname(): string {
         if (this.location.protocol === Endpoint.PROTO_FILE) {
             return '';
         }
@@ -43,7 +52,10 @@ export class Endpoint {
         return this.location.pathname;
     }
 
-    protected get host() {
+    protected get host(): string {
+        if (this.options.host) {
+            return this.options.host;
+        }
         if (this.location.host) {
             return this.location.host;
         }
@@ -67,11 +79,18 @@ export class Endpoint {
             })[0] || defaultValue;
     }
 
-    protected get wsScheme() {
+    protected get wsScheme(): string {
+        if (this.options.wsScheme) {
+            return this.options.wsScheme;
+        }
         return this.httpScheme === Endpoint.PROTO_HTTPS ? Endpoint.PROTO_WSS : Endpoint.PROTO_WS;
     }
 
-    protected get httpScheme() {
+    /**
+     * The HTTP/HTTPS scheme of the endpoint, or the user defined one.
+     * See: `Endpoint.Options.httpScheme`.
+     */
+    get httpScheme(): string {
         if (this.options.httpScheme) {
             return this.options.httpScheme;
         }
@@ -82,15 +101,15 @@ export class Endpoint {
         return Endpoint.PROTO_HTTP;
     }
 
-    protected get path() {
+    protected get path(): string {
         if (this.options.path) {
-            if (this.options.path.startsWith("/")) {
+            if (this.options.path.startsWith('/')) {
                 return this.options.path;
             } else {
                 return '/' + this.options.path;
             }
         }
-        return this.options.path || "";
+        return this.options.path || '';
     }
 }
 
@@ -102,7 +121,7 @@ export namespace Endpoint {
         path?: string;
     }
 
-    // Necessary for running tests with dependecy on TS lib on node
+    // Necessary for running tests with dependency on TS lib on node
     // FIXME figure out how to mock with ts-node
     export class Location {
         host: string;

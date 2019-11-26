@@ -1,17 +1,26 @@
-/*
+/********************************************************************************
  * Copyright (C) 2017 TypeFox and others.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
- */
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v. 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0.
+ *
+ * This Source Code may also be made available under the following Secondary
+ * Licenses when the conditions for such availability set forth in the Eclipse
+ * Public License v. 2.0 are satisfied: GNU General Public License, version 2
+ * with the GNU Classpath Exception which is available at
+ * https://www.gnu.org/software/classpath/license.html.
+ *
+ * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
+ ********************************************************************************/
 
 import { ProblemMarker } from '../../common/problem-marker';
 import { ProblemManager } from './problem-manager';
-import { MarkerNode, MarkerTree, MarkerOptions } from '../marker-tree';
-import { MarkerTreeModel, MarkerTreeServices } from '../marker-tree-model';
-import { injectable, inject } from "inversify";
-import { OpenerService, OpenerOptions } from '@theia/core/lib/browser';
-import { Diagnostic } from "vscode-languageserver-types";
+import { MarkerNode, MarkerTree, MarkerOptions, MarkerInfoNode } from '../marker-tree';
+import { MarkerTreeModel } from '../marker-tree-model';
+import { injectable, inject } from 'inversify';
+import { OpenerOptions, TreeNode } from '@theia/core/lib/browser';
+import { Diagnostic } from 'vscode-languageserver-types';
 import { LabelProvider } from '@theia/core/lib/browser/label-provider';
 
 @injectable()
@@ -25,16 +34,9 @@ export class ProblemTree extends MarkerTree<Diagnostic> {
 }
 
 @injectable()
-export class ProblemTreeModel extends MarkerTreeModel<Diagnostic> {
+export class ProblemTreeModel extends MarkerTreeModel {
 
-    protected readonly openerService: OpenerService;
-
-    constructor(
-        @inject(ProblemTree) protected readonly tree: ProblemTree,
-        @inject(MarkerTreeServices) readonly services: MarkerTreeServices,
-    ) {
-        super(tree, services);
-    }
+    @inject(ProblemManager) protected readonly problemManager: ProblemManager;
 
     protected getOpenerOptionsByMarker(node: MarkerNode): OpenerOptions | undefined {
         if (ProblemMarker.is(node.marker)) {
@@ -43,5 +45,17 @@ export class ProblemTreeModel extends MarkerTreeModel<Diagnostic> {
             };
         }
         return undefined;
+    }
+
+    removeNode(node: TreeNode): void {
+        if (MarkerInfoNode.is(node)) {
+            this.problemManager.cleanAllMarkers(node.uri);
+        }
+        if (MarkerNode.is(node)) {
+            const { uri } = node;
+            const { owner } = node.marker;
+            const diagnostics = this.problemManager.findMarkers({ uri, owner, dataFilter: data => node.marker.data !== data }).map(({ data }) => data);
+            this.problemManager.setMarkers(uri, owner, diagnostics);
+        }
     }
 }

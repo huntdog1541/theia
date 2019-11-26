@@ -1,13 +1,25 @@
-/*
+/********************************************************************************
  * Copyright (C) 2017 TypeFox and others.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
- */
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v. 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0.
+ *
+ * This Source Code may also be made available under the following Secondary
+ * Licenses when the conditions for such availability set forth in the Eclipse
+ * Public License v. 2.0 are satisfied: GNU General Public License, version 2
+ * with the GNU Classpath Exception which is available at
+ * https://www.gnu.org/software/classpath/license.html.
+ *
+ * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
+ ********************************************************************************/
 
-import { MessageConnection, ResponseError, ErrorCodes } from "vscode-jsonrpc";
-import { Event, Emitter } from "../event";
-import { Disposable } from "../disposable";
+// tslint:disable:no-any
+
+import { MessageConnection, ResponseError } from 'vscode-jsonrpc';
+import { ApplicationError } from '../application-error';
+import { Event, Emitter } from '../event';
+import { Disposable } from '../disposable';
 import { ConnectionHandler } from './handler';
 
 export type JsonRpcServer<Client> = Disposable & {
@@ -117,7 +129,7 @@ export class JsonRpcProxyFactory<T extends object> implements ProxyHandler<T> {
      * This connection will be used to send/receive JSON-RPC requests and
      * response.
      */
-    listen(connection: MessageConnection) {
+    listen(connection: MessageConnection): void {
         if (this.target) {
             for (const prop in this.target) {
                 if (typeof this.target[prop] === 'function') {
@@ -146,14 +158,15 @@ export class JsonRpcProxyFactory<T extends object> implements ProxyHandler<T> {
     protected async onRequest(method: string, ...args: any[]): Promise<any> {
         try {
             return await this.target[method](...args);
-        } catch (e) {
+        } catch (error) {
+            const e = this.serializeError(error);
             if (e instanceof ResponseError) {
                 throw e;
             }
             const reason = e.message || '';
             const stack = e.stack || '';
-            throw new ResponseError(ErrorCodes.InternalError, `Request ${method} failed with error: ${reason}
-${stack}`);
+            console.error(`Request ${method} failed with error: ${reason}`, stack);
+            throw e;
         }
     }
 
@@ -214,17 +227,19 @@ ${stack}`);
             return this.onDidCloseConnectionEmitter.event;
         }
         const isNotify = this.isNotification(p);
-        return (...args: any[]) =>
-            this.connectionPromise.then(connection =>
+        return (...args: any[]) => {
+            const method = p.toString();
+            const capturedError = new Error(`Request '${method}' failed`);
+            return this.connectionPromise.then(connection =>
                 new Promise((resolve, reject) => {
                     try {
                         if (isNotify) {
-                            connection.sendNotification(p.toString(), ...args);
+                            connection.sendNotification(method, ...args);
                             resolve();
                         } else {
-                            const resultPromise = connection.sendRequest(p.toString(), ...args) as Promise<any>;
+                            const resultPromise = connection.sendRequest(method, ...args) as Promise<any>;
                             resultPromise
-                                .catch((err: any) => reject(err))
+                                .catch((err: any) => reject(this.deserializeError(capturedError, err)))
                                 .then((result: any) => resolve(result));
                         }
                     } catch (err) {
@@ -232,6 +247,7 @@ ${stack}`);
                     }
                 })
             );
+        };
     }
 
     /**
@@ -244,6 +260,31 @@ ${stack}`);
      * @return Whether `p` represents a notification.
      */
     protected isNotification(p: PropertyKey): boolean {
-        return p.toString().startsWith("notify") || p.toString().startsWith("on");
+        return p.toString().startsWith('notify') || p.toString().startsWith('on');
     }
+
+    protected serializeError(e: any): any {
+        if (ApplicationError.is(e)) {
+            return new ResponseError(e.code, '',
+                Object.assign({ kind: 'application' }, e.toJson())
+            );
+        }
+        return e;
+    }
+    protected deserializeError(capturedError: Error, e: any): any {
+        if (e instanceof ResponseError) {
+            const capturedStack = capturedError.stack || '';
+            if (e.data && e.data.kind === 'application') {
+                const { stack, data, message } = e.data;
+                return ApplicationError.fromJson(e.code, {
+                    message: message || capturedError.message,
+                    data,
+                    stack: `${capturedStack}\nCaused by: ${stack}`
+                });
+            }
+            e.stack = capturedStack;
+        }
+        return e;
+    }
+
 }

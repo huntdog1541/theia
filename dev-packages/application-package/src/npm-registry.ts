@@ -1,13 +1,23 @@
-/*
+/********************************************************************************
  * Copyright (C) 2017 TypeFox and others.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
- */
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v. 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0.
+ *
+ * This Source Code may also be made available under the following Secondary
+ * Licenses when the conditions for such availability set forth in the Eclipse
+ * Public License v. 2.0 are satisfied: GNU General Public License, version 2
+ * with the GNU Classpath Exception which is available at
+ * https://www.gnu.org/software/classpath/license.html.
+ *
+ * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
+ ********************************************************************************/
 
 // tslint:disable:no-any
 import * as request from 'request';
 const ChangesStream = require('changes-stream');
+import { NpmRegistryProps } from './application-props';
 
 export interface IChangeStream {
     on(event: 'data', cb: (change: { id: string }) => void): void;
@@ -61,22 +71,13 @@ export interface ViewResult {
     [key: string]: any
 }
 
-export function sortByKey(object: { [key: string]: any }) {
+export function sortByKey(object: { [key: string]: any }): {
+    [key: string]: any;
+} {
     return Object.keys(object).sort().reduce((sorted, key) => {
         sorted[key] = object[key];
         return sorted;
     }, {} as { [key: string]: any });
-}
-
-export class NpmRegistryConfig {
-    /**
-     * Default: 'false'
-     */
-    readonly next: boolean;
-    /**
-     * Default: https://registry.npmjs.org/.
-     */
-    readonly registry: string;
 }
 
 export class NpmRegistryOptions {
@@ -88,12 +89,7 @@ export class NpmRegistryOptions {
 
 export class NpmRegistry {
 
-    static defaultConfig: NpmRegistryConfig = {
-        next: false,
-        registry: 'https://registry.npmjs.org/'
-    };
-
-    readonly config: NpmRegistryConfig = { ...NpmRegistry.defaultConfig };
+    readonly props: NpmRegistryProps = { ...NpmRegistryProps.DEFAULT };
     protected readonly options: NpmRegistryOptions;
 
     protected changes: undefined | IChangeStream;
@@ -107,17 +103,17 @@ export class NpmRegistry {
         this.resetIndex();
     }
 
-    updateConfig(config?: Partial<NpmRegistryConfig>) {
-        const oldRegistry = this.config.registry;
-        Object.assign(this.config, config);
-        const newRegistry = this.config.registry;
+    updateProps(props?: Partial<NpmRegistryProps>): void {
+        const oldRegistry = this.props.registry;
+        Object.assign(this.props, props);
+        const newRegistry = this.props.registry;
         if (oldRegistry !== newRegistry) {
             this.resetIndex();
         }
     }
     protected resetIndex(): void {
         this.index.clear();
-        if (this.options.watchChanges && this.config.registry === NpmRegistry.defaultConfig.registry) {
+        if (this.options.watchChanges && this.props.registry === NpmRegistryProps.DEFAULT.registry) {
             if (this.changes) {
                 this.changes.destroy();
             }
@@ -146,7 +142,7 @@ export class NpmRegistry {
     }
 
     protected doView(name: string): Promise<ViewResult> {
-        let url = this.config.registry;
+        let url = this.props.registry;
         if (name[0] === '@') {
             url += '@' + encodeURIComponent(name.substr(1));
         } else {

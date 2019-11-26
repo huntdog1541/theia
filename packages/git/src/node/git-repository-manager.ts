@@ -1,46 +1,48 @@
-/*
+/********************************************************************************
  * Copyright (C) 2017 TypeFox and others.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
- */
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v. 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0.
+ *
+ * This Source Code may also be made available under the following Secondary
+ * Licenses when the conditions for such availability set forth in the Eclipse
+ * Public License v. 2.0 are satisfied: GNU General Public License, version 2
+ * with the GNU Classpath Exception which is available at
+ * https://www.gnu.org/software/classpath/license.html.
+ *
+ * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
+ ********************************************************************************/
 
-import { injectable, inject } from "inversify";
+import { injectable, inject } from 'inversify';
+import { ReferenceCollection, Reference } from '@theia/core';
 import { Repository } from '../common';
-import { GitRepositoryWatcher, GitRepositoryWatcherFactory } from "./git-repository-watcher";
-
-export const GitRepositoryManager = Symbol('GitRepositoryManager');
-export interface GitRepositoryManager {
-
-    run<T>(repository: Repository, op: () => Promise<T>): Promise<T>;
-
-    getWatcher(repository: Repository): GitRepositoryWatcher;
-
-}
+import { GitRepositoryWatcher, GitRepositoryWatcherFactory } from './git-repository-watcher';
 
 @injectable()
-export class GitRepositoryManagerImpl implements GitRepositoryManager {
+export class GitRepositoryManager {
 
     @inject(GitRepositoryWatcherFactory)
     protected readonly watcherFactory: GitRepositoryWatcherFactory;
-    protected readonly watchers = new Map<string, GitRepositoryWatcher>();
+    protected readonly watchers = new ReferenceCollection<Repository, GitRepositoryWatcher>(
+        repository => this.watcherFactory({ repository })
+    );
 
     run<T>(repository: Repository, op: () => Promise<T>): Promise<T> {
         const result = op();
-        result.then(() =>
-            this.getWatcher(repository).sync()
-        );
+        result.then(() => this.sync(repository));
         return result;
     }
 
-    getWatcher(repository: Repository): GitRepositoryWatcher {
-        const existing = this.watchers.get(repository.localUri);
-        if (existing) {
-            return existing;
-        }
-        const watcher = this.watcherFactory({ repository });
-        this.watchers.set(repository.localUri, watcher);
-        return watcher;
+    getWatcher(repository: Repository): Promise<Reference<GitRepositoryWatcher>> {
+        return this.watchers.acquire(repository);
+    }
+
+    protected async sync(repository: Repository): Promise<void> {
+        const reference = await this.getWatcher(repository);
+        const watcher = reference.object;
+        // dispose the reference once the next sync cycle is actaully completed
+        watcher.sync().then(() => reference.dispose());
     }
 
 }

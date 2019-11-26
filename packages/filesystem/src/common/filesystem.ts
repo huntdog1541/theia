@@ -1,26 +1,36 @@
-/*
+/********************************************************************************
  * Copyright (C) 2017 TypeFox and others.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
- */
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v. 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0.
+ *
+ * This Source Code may also be made available under the following Secondary
+ * Licenses when the conditions for such availability set forth in the Eclipse
+ * Public License v. 2.0 are satisfied: GNU General Public License, version 2
+ * with the GNU Classpath Exception which is available at
+ * https://www.gnu.org/software/classpath/license.html.
+ *
+ * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
+ ********************************************************************************/
 
-import { JsonRpcServer } from '@theia/core/lib/common';
-
+import { TextDocumentContentChangeEvent } from 'vscode-languageserver-protocol';
+import { JsonRpcServer, ApplicationError } from '@theia/core/lib/common';
+import { injectable } from 'inversify';
 export const fileSystemPath = '/services/filesystem';
 
-export const FileSystem = Symbol("FileSystem");
+export const FileSystem = Symbol('FileSystem');
 
 export interface FileSystem extends JsonRpcServer<FileSystemClient> {
 
     /**
-     * Returns the filestat for the given uri.
+     * Returns the file stat for the given URI.
      *
      * If the uri points to a folder it will contain one level of unresolved children.
      *
-     * Reject if a file for the given uri does not exist.
+     * `undefined` if a file for the given URI does not exist.
      */
-    getFileStat(uri: string): Promise<FileStat>;
+    getFileStat(uri: string): Promise<FileStat | undefined>;
 
     /**
      * Finds out if a file identified by the resource exists.
@@ -38,6 +48,20 @@ export interface FileSystem extends JsonRpcServer<FileSystemClient> {
     setContent(file: FileStat, content: string, options?: { encoding?: string }): Promise<FileStat>;
 
     /**
+     * Updates the content replacing its previous value.
+     *
+     * The optional parameter `overwriteEncoding` can be used to transform the encoding of a file.
+     *
+     * |   | encoding | overwriteEncoding | behaviour |
+     * |---|----------|-------------------|-----------|
+     * | 1 | undefined |    undefined     | read & write file in default encoding |
+     * | 2 | undefined |        ✓         | read file in default encoding; write file in `overwriteEncoding` |
+     * | 3 |     ✓    |     undefined     | read & write file in `encoding` |
+     * | 4 |     ✓    |        ✓         | read file in `encoding`; write file in `overwriteEncoding` |
+     */
+    updateContent(file: FileStat, contentChanges: TextDocumentContentChangeEvent[], options?: { encoding?: string, overwriteEncoding?: string }): Promise<FileStat>;
+
+    /**
      * Moves the file to a new path identified by the resource.
      *
      * The optional parameter overwrite can be set to replace an existing file at the location.
@@ -50,7 +74,7 @@ export interface FileSystem extends JsonRpcServer<FileSystemClient> {
      * | dir       |    ✓    |   x  | overwrite | overwrite |
      *
      */
-    move(sourceUri: string, targetUri: string, options?: { overwrite?: boolean }): Promise<FileStat>;
+    move(sourceUri: string, targetUri: string, options?: FileMoveOptions): Promise<FileStat>;
 
     /**
      * Copies the file to a path identified by the resource.
@@ -83,7 +107,7 @@ export interface FileSystem extends JsonRpcServer<FileSystemClient> {
      * Deletes the provided file. The optional moveToTrash parameter allows to
      * move the file to trash.
      */
-    delete(uri: string, options?: { moveToTrash?: boolean }): Promise<void>;
+    delete(uri: string, options?: FileDeleteOptions): Promise<void>;
 
     /**
      * Returns the encoding of the given file resource.
@@ -91,15 +115,93 @@ export interface FileSystem extends JsonRpcServer<FileSystemClient> {
     getEncoding(uri: string): Promise<string>;
 
     /**
+     * Guess encoding of a given file besed on its content.
+     */
+    guessEncoding(uri: string): Promise<string | undefined>;
+
+    /**
      * Return list of available roots.
      */
     getRoots(): Promise<FileStat[]>;
 
     /**
-     * Returns a promise the resolves to a file stat representing the current user's home directory.
+     * Returns a promise that resolves to a file stat representing the current user's home directory.
      */
-    getCurrentUserHome(): Promise<FileStat>;
+    getCurrentUserHome(): Promise<FileStat | undefined>;
 
+    /**
+     * Resolves to an array of URIs pointing to the available drives on the filesystem.
+     */
+    getDrives(): Promise<string[]>;
+
+    /**
+     * Tests a user's permissions for the file or directory specified by URI.
+     * The mode argument is an optional integer that specifies the accessibility checks to be performed.
+     * Check `FileAccess.Constants` for possible values of mode.
+     * It is possible to create a mask consisting of the bitwise `OR` of two or more values (e.g. FileAccess.Constants.W_OK | FileAccess.Constants.R_OK).
+     * If `mode` is not defined, `FileAccess.Constants.F_OK` will be used instead.
+     */
+    access(uri: string, mode?: number): Promise<boolean>
+
+    /**
+     * Returns the path of the given file URI, specific to the backend's operating system.
+     * If the URI is not a file URI, undefined is returned.
+     *
+     * USE WITH CAUTION: You should always prefer URIs to paths if possible, as they are
+     * portable and platform independent. Paths should only be used in cases you directly
+     * interact with the OS, e.g. when running a command on the shell.
+     */
+    getFsPath(uri: string): Promise<string | undefined>
+}
+
+export namespace FileAccess {
+
+    export namespace Constants {
+
+        /**
+         * Flag indicating that the file is visible to the calling process.
+         * This is useful for determining if a file exists, but says nothing about rwx permissions. Default if no mode is specified.
+         */
+        export const F_OK: number = 0;
+
+        /**
+         * Flag indicating that the file can be read by the calling process.
+         */
+        export const R_OK: number = 4;
+
+        /**
+         * Flag indicating that the file can be written by the calling process.
+         */
+        export const W_OK: number = 2;
+
+        /**
+         * Flag indicating that the file can be executed by the calling process.
+         * This has no effect on Windows (will behave like `FileAccess.F_OK`).
+         */
+        export const X_OK: number = 1;
+
+    }
+
+}
+
+export interface FileMoveOptions {
+    overwrite?: boolean;
+}
+
+export interface FileDeleteOptions {
+    moveToTrash?: boolean
+}
+
+/**
+ * A callback type, called when we try to save a file but realize it has been
+ * modified by somebody else since we have opened it.  `originalStat` is the
+ * stat at the moment we opened the file, `currentStat` is the stat at the
+ * moment we try to save it (after the external modification).  The callback
+ * should return true if we still want to save the file, false otherwise.
+ */
+export const FileShouldOverwrite = Symbol('FileShouldOverwrite');
+export interface FileShouldOverwrite {
+    (originalStat: FileStat, currentStat: FileStat): Promise<boolean>;
 }
 
 export interface FileSystemClient {
@@ -108,7 +210,31 @@ export interface FileSystemClient {
      * Tests whether the given file can be overwritten
      * in the case if it is out of sync with the given file stat.
      */
-    shouldOverwrite(file: FileStat, stat: FileStat): Promise<boolean>;
+    shouldOverwrite: FileShouldOverwrite;
+
+    onDidMove(sourceUri: string, targetUri: string): void;
+
+    onWillMove(sourceUri: string, targetUri: string): void;
+}
+
+@injectable()
+export class DispatchingFileSystemClient implements FileSystemClient {
+
+    readonly clients = new Set<FileSystemClient>();
+
+    shouldOverwrite(originalStat: FileStat, currentStat: FileStat): Promise<boolean> {
+        return Promise.race([...this.clients].map(client =>
+            client.shouldOverwrite(originalStat, currentStat))
+        );
+    }
+
+    onDidMove(sourceUri: string, targetUri: string): void {
+        this.clients.forEach(client => client.onDidMove(sourceUri, targetUri));
+    }
+
+    onWillMove(sourceUri: string, targetUri: string): void {
+        this.clients.forEach(client => client.onWillMove(sourceUri, targetUri));
+    }
 
 }
 
@@ -118,7 +244,7 @@ export interface FileSystemClient {
 export interface FileStat {
 
     /**
-     * The uri of the file.
+     * The URI of the file.
      */
     uri: string;
 
@@ -128,14 +254,13 @@ export interface FileStat {
     lastModification: number;
 
     /**
-     * The resource is a directory. Iff {{true}}
-     * {{encoding}} has no meaning.
+     * `true` if the resource is a directory. Otherwise, `false`.
      */
     isDirectory: boolean;
 
     /**
      * The children of the file stat.
-     * If it is undefined and isDirectory is true, then this file stat is unresolved.
+     * If it is `undefined` and `isDirectory` is `true`, then this file stat is unresolved.
      */
     children?: FileStat[];
 
@@ -147,9 +272,39 @@ export interface FileStat {
 }
 
 export namespace FileStat {
-    export function is(candidate: object): candidate is FileStat {
-        return candidate.hasOwnProperty('uri')
-            && candidate.hasOwnProperty('lastModification')
-            && candidate.hasOwnProperty('isDirectory');
+    export function is(candidate: Object | undefined): candidate is FileStat {
+        return typeof candidate === 'object' && ('uri' in candidate) && ('lastModification' in candidate) && ('isDirectory' in candidate);
     }
+
+    export function equals(one: object | undefined, other: object | undefined): boolean {
+        if (!one || !other || !is(one) || !is(other)) {
+            return false;
+        }
+        return one.uri === other.uri
+            && one.lastModification === other.lastModification
+            && one.isDirectory === other.isDirectory;
+    }
+}
+
+export namespace FileSystemError {
+    export const FileNotFound = ApplicationError.declare(-33000, (uri: string, prefix?: string) => ({
+        message: `${prefix ? prefix + ' ' : ''}'${uri}' has not been found.`,
+        data: { uri }
+    }));
+    export const FileExists = ApplicationError.declare(-33001, (uri: string, prefix?: string) => ({
+        message: `${prefix ? prefix + ' ' : ''}'${uri}' already exists.`,
+        data: { uri }
+    }));
+    export const FileIsDirectory = ApplicationError.declare(-33002, (uri: string, prefix?: string) => ({
+        message: `${prefix ? prefix + ' ' : ''}'${uri}' is a directory.`,
+        data: { uri }
+    }));
+    export const FileNotDirectory = ApplicationError.declare(-33003, (uri: string, prefix?: string) => ({
+        message: `${prefix ? prefix + ' ' : ''}'${uri}' is not a directory.`,
+        data: { uri }
+    }));
+    export const FileIsOutOfSync = ApplicationError.declare(-33004, (file: FileStat, stat: FileStat) => ({
+        message: `'${file.uri}' is out of sync.`,
+        data: { file, stat }
+    }));
 }

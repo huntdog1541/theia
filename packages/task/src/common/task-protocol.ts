@@ -1,63 +1,91 @@
-/*
+/********************************************************************************
  * Copyright (C) 2017 Ericsson and others.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
- */
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v. 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0.
+ *
+ * This Source Code may also be made available under the following Secondary
+ * Licenses when the conditions for such availability set forth in the Eclipse
+ * Public License v. 2.0 are satisfied: GNU General Public License, version 2
+ * with the GNU Classpath Exception which is available at
+ * https://www.gnu.org/software/classpath/license.html.
+ *
+ * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
+ ********************************************************************************/
 
 import { JsonRpcServer } from '@theia/core/lib/common/messaging/proxy-factory';
-import { RawProcessOptions } from '@theia/process/lib/node/raw-process';
-import { TerminalProcessOptions } from '@theia/process/lib/node/terminal-process';
+import { IJSONSchema } from '@theia/core/lib/common/json-schema';
+import { ProblemMatcher, ProblemMatch, WatchingPattern } from './problem-matcher-protocol';
 
 export const taskPath = '/services/task';
 
 export const TaskServer = Symbol('TaskServer');
 export const TaskClient = Symbol('TaskClient');
 
-export type ProcessType = 'terminal' | 'raw';
+export interface TaskCustomization {
+    type: string;
+    group?: 'build' | 'test' | 'none' | { kind: 'build' | 'test' | 'none', isDefault: true };
+    problemMatcher?: string | ProblemMatcherContribution | (string | ProblemMatcherContribution)[];
+    // tslint:disable-next-line:no-any
+    [name: string]: any;
+}
+export namespace TaskCustomization {
+    export function isBuildTask(task: TaskCustomization): boolean {
+        return task.group === 'build' || !!task.group && typeof task.group === 'object' && task.group.kind === 'build';
+    }
 
-export interface TaskInfo {
-    /** internal unique task id */
-    taskId: number,
-    /** terminal id. Defined if task is run as a terminal process */
-    terminalId?: number,
-    /** internal unique process id */
-    processId?: number,
-    /** OS PID of the process running the task */
-    osProcessId: number,
-    /** The command used to start this task */
-    command: string,
-    /** task label */
-    label: string,
-    /** context that was passed as part of task creation, if any */
-    ctx?: string
+    export function isDefaultBuildTask(task: TaskCustomization): boolean {
+        return !!task.group && typeof task.group === 'object' && task.group.kind === 'build' && task.group.isDefault;
+    }
+
+    export function isTestTask(task: TaskCustomization): boolean {
+        return task.group === 'test' || !!task.group && typeof task.group === 'object' && task.group.kind === 'test';
+    }
+
+    export function isDefaultTestTask(task: TaskCustomization): boolean {
+        return !!task.group && typeof task.group === 'object' && task.group.kind === 'test' && task.group.isDefault;
+    }
 }
 
-export interface TaskOptions {
-    /** A label that uniquely identifies a task configuration */
-    label: string,
-    /** 'raw' or 'terminal' - if not specified 'terminal' is the default */
-    processType?: ProcessType,
-    /** contains 'command', 'args?', 'options?' */
-    processOptions: RawProcessOptions | TerminalProcessOptions,
+export interface TaskConfiguration extends TaskCustomization {
+    /** A label that uniquely identifies a task configuration per source */
+    readonly label: string;
     /**
-     * windows version of processOptions. Used in preference on Windows, if
-     * defined
+     * For a provided task, it is the string representation of the URI where the task is supposed to run from. It is `undefined` for global tasks.
+     * For a configured task, it is workspace URI that task belongs to.
+     * This field is not supposed to be used in `tasks.json`
      */
-    windowsProcessOptions?: RawProcessOptions | TerminalProcessOptions,
+    readonly _scope: string | undefined;
+}
+
+export interface ContributedTaskConfiguration extends TaskConfiguration {
     /**
-     * The 'current working directory' the task will run in. Can be a uri-as-string
-     * or plain string path. If the cwd is meant to be somewhere under the workspace,
-     * one can use symbolic value "$workspace", which will be replaced by its path,
-     * at runtime. If not specified, defaults to the workspace root.
-     * ex:  cwd: '$workspace/foo'
+     * Source of the task configuration.
+     * For a configured task, it is the name of the root folder, while for a provided task, it is the name of the provider.
+     * This field is not supposed to be used in `tasks.json`
      */
-    cwd?: string
+    readonly _source: string;
+}
+
+/** Runtime information about Task. */
+export interface TaskInfo {
+    /** internal unique task id */
+    readonly taskId: number,
+    /** terminal id. Defined if task is run as a terminal process */
+    readonly terminalId?: number,
+    /** context that was passed as part of task creation, if any */
+    readonly ctx?: string,
+    /** task config used for launching a task */
+    readonly config: TaskConfiguration,
+    /** Additional properties specific for a particular Task Runner. */
+    // tslint:disable-next-line:no-any
+    readonly [key: string]: any;
 }
 
 export interface TaskServer extends JsonRpcServer<TaskClient> {
     /** Run a task. Optionally pass a context.  */
-    run(task: TaskOptions, ctx?: string): Promise<TaskInfo>;
+    run(task: TaskConfiguration, ctx?: string, option?: RunTaskOption): Promise<TaskInfo>;
     /** Kill a task, by id. */
     kill(taskId: number): Promise<void>;
     /**
@@ -69,17 +97,103 @@ export interface TaskServer extends JsonRpcServer<TaskClient> {
 
     /** removes the client that has disconnected */
     disconnectClient(client: TaskClient): void;
+
+    /** Returns the list of default and registered task runners */
+    getRegisteredTaskTypes(): Promise<string[]>
+
+}
+
+export interface TaskCustomizationData {
+    type: string;
+    problemMatcher?: ProblemMatcher[];
+    // tslint:disable-next-line:no-any
+    [name: string]: any;
+}
+
+export interface RunTaskOption {
+    customization?: TaskCustomizationData;
 }
 
 /** Event sent when a task has concluded its execution */
 export interface TaskExitedEvent {
-    taskId: number;
-    code: number;
-    signal?: string;
-    ctx?: string
+    readonly taskId: number;
+    readonly ctx?: string;
+
+    // Exactly one of code and signal will be set.
+    readonly code?: number;
+    readonly signal?: string;
+
+    readonly config?: TaskConfiguration;
+}
+
+export interface TaskOutputEvent {
+    readonly taskId: number;
+    readonly ctx?: string;
+    readonly line: string;
+}
+
+export interface TaskOutputProcessedEvent {
+    readonly taskId: number;
+    readonly ctx?: string;
+    readonly problems?: ProblemMatch[];
 }
 
 export interface TaskClient {
     onTaskExit(event: TaskExitedEvent): void;
     onTaskCreated(event: TaskInfo): void;
+    onDidStartTaskProcess(event: TaskInfo): void;
+    onDidEndTaskProcess(event: TaskExitedEvent): void;
+    onDidProcessTaskOutput(event: TaskOutputProcessedEvent): void;
+}
+
+export interface TaskDefinition {
+    taskType: string;
+    source: string;
+    properties: {
+        required: string[];
+        all: string[];
+        schema: IJSONSchema;
+    }
+}
+
+export interface WatchingMatcherContribution {
+    // If set to true the background monitor is in active mode when the task starts.
+    // This is equals of issuing a line that matches the beginPattern
+    activeOnStart?: boolean;
+    beginsPattern: string | WatchingPattern;
+    endsPattern: string | WatchingPattern;
+}
+
+export interface ProblemMatcherContribution {
+    name?: string;
+    label: string;
+    deprecated?: boolean;
+
+    owner: string;
+    source?: string;
+    applyTo?: string;
+    fileLocation?: 'absolute' | 'relative' | string[];
+    pattern: string | ProblemPatternContribution | ProblemPatternContribution[];
+    severity?: string;
+    watching?: WatchingMatcherContribution; // deprecated. Use `background`.
+    background?: WatchingMatcherContribution;
+}
+
+export interface ProblemPatternContribution {
+    name?: string;
+    regexp: string;
+
+    kind?: string;
+    file?: number;
+    message?: number;
+    location?: number;
+    line?: number;
+    character?: number;
+    column?: number;
+    endLine?: number;
+    endCharacter?: number;
+    endColumn?: number;
+    code?: number;
+    severity?: number;
+    loop?: boolean;
 }

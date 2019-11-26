@@ -1,40 +1,40 @@
-/*
+/********************************************************************************
  * Copyright (C) 2017 TypeFox and others.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
- */
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v. 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0.
+ *
+ * This Source Code may also be made available under the following Secondary
+ * Licenses when the conditions for such availability set forth in the Eclipse
+ * Public License v. 2.0 are satisfied: GNU General Public License, version 2
+ * with the GNU Classpath Exception which is available at
+ * https://www.gnu.org/software/classpath/license.html.
+ *
+ * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
+ ********************************************************************************/
 
-import { injectable, inject } from "inversify";
+import { injectable, inject, postConstruct } from 'inversify';
 import URI from '@theia/core/lib/common/uri';
-import { ICompositeTreeNode, TreeModel, TreeServices, ITreeNode } from "@theia/core/lib/browser";
-import { FileSystem, FileSystemWatcher, FileChangeType, FileChange } from "../../common";
-import { FileStatNode, DirNode, FileTree } from "./file-tree";
+import { CompositeTreeNode, TreeModelImpl, TreeNode, ConfirmDialog } from '@theia/core/lib/browser';
+import { FileSystem } from '../../common';
+import { FileSystemWatcher, FileChangeType, FileChange, FileMoveEvent } from '../filesystem-watcher';
+import { FileStatNode, DirNode, FileNode } from './file-tree';
 import { LocationService } from '../location';
-import { LabelProvider } from "@theia/core/lib/browser/label-provider";
-import * as base64 from 'base64-js';
+import { LabelProvider } from '@theia/core/lib/browser/label-provider';
 
 @injectable()
-export class FileTreeServices extends TreeServices {
-    @inject(FileSystem) readonly fileSystem: FileSystem;
-    @inject(FileSystemWatcher) readonly watcher: FileSystemWatcher;
-}
+export class FileTreeModel extends TreeModelImpl implements LocationService {
 
-@injectable()
-export class FileTreeModel extends TreeModel implements LocationService {
+    @inject(LabelProvider) protected readonly labelProvider: LabelProvider;
+    @inject(FileSystem) protected readonly fileSystem: FileSystem;
+    @inject(FileSystemWatcher) protected readonly watcher: FileSystemWatcher;
 
-    protected readonly fileSystem: FileSystem;
-    protected readonly watcher: FileSystemWatcher;
-
-    @inject(LabelProvider)
-    protected readonly labelProvider: LabelProvider;
-
-    constructor(
-        @inject(FileTree) protected readonly tree: FileTree,
-        @inject(FileTreeServices) services: FileTreeServices
-    ) {
-        super(tree, services);
+    @postConstruct()
+    protected init(): void {
+        super.init();
         this.toDispose.push(this.watcher.onFilesChanged(changes => this.onFilesChanged(changes)));
+        this.toDispose.push(this.watcher.onDidMove(move => this.onDidMove(move)));
     }
 
     get location(): URI | undefined {
@@ -48,29 +48,54 @@ export class FileTreeModel extends TreeModel implements LocationService {
     set location(uri: URI | undefined) {
         if (uri) {
             this.fileSystem.getFileStat(uri.toString()).then(async fileStat => {
-                const label = this.labelProvider.getName(uri);
-                const icon = await this.labelProvider.getIcon(fileStat);
-                const node = DirNode.createRoot(fileStat, label, icon);
-                this.navigateTo(node);
+                if (fileStat) {
+                    const label = this.labelProvider.getName(uri);
+                    const icon = await this.labelProvider.getIcon(fileStat);
+                    const node = DirNode.createRoot(fileStat, label, icon);
+                    this.navigateTo(node);
+                }
             });
         } else {
             this.navigateTo(undefined);
         }
     }
 
-    get selectedFileStatNode(): Readonly<FileStatNode> | undefined {
-        const selectedNode = this.selectedNode;
-        if (FileStatNode.is(selectedNode)) {
-            return selectedNode;
+    async drives(): Promise<URI[]> {
+        try {
+            const drives = await this.fileSystem.getDrives();
+            return drives.map(uri => new URI(uri));
+        } catch (e) {
+            this.logger.error('Error when loading drives.', e);
+            return [];
         }
-        return undefined;
+    }
+
+    get selectedFileStatNodes(): Readonly<FileStatNode>[] {
+        return this.selectedNodes.filter(FileStatNode.is);
+    }
+
+    *getNodesByUri(uri: URI): IterableIterator<TreeNode> {
+        const node = this.getNode(uri.toString());
+        if (node) {
+            yield node;
+        }
+    }
+
+    /**
+     * to workaround https://github.com/Axosoft/nsfw/issues/42
+     */
+    protected onDidMove(move: FileMoveEvent): void {
+        if (FileMoveEvent.isRename(move)) {
+            return;
+        }
+        this.refreshAffectedNodes([
+            move.sourceUri,
+            move.targetUri
+        ]);
     }
 
     protected onFilesChanged(changes: FileChange[]): void {
-        const affectedNodes = this.getAffectedNodes(changes);
-        if (affectedNodes.length !== 0) {
-            affectedNodes.forEach(node => this.refresh(node));
-        } else if (this.isRootAffected(changes)) {
+        if (!this.refreshAffectedNodes(this.getAffectedUris(changes)) && this.isRootAffected(changes)) {
             this.refresh();
         }
     }
@@ -85,13 +110,29 @@ export class FileTreeModel extends TreeModel implements LocationService {
         return false;
     }
 
-    protected getAffectedNodes(changes: FileChange[]): ICompositeTreeNode[] {
-        const nodes: DirNode[] = [];
-        for (const change of changes) {
-            const id = change.uri.parent.toString();
-            const node = this.getNode(id);
-            if (DirNode.is(node) && node.expanded) {
-                nodes.push(node);
+    protected getAffectedUris(changes: FileChange[]): URI[] {
+        return changes.filter(change => !this.isFileContentChanged(change)).map(change => change.uri);
+    }
+
+    protected isFileContentChanged(change: FileChange): boolean {
+        return change.type === FileChangeType.UPDATED && FileNode.is(this.getNodesByUri(change.uri).next().value);
+    }
+
+    protected refreshAffectedNodes(uris: URI[]): boolean {
+        const nodes = this.getAffectedNodes(uris);
+        for (const node of nodes.values()) {
+            this.refresh(node);
+        }
+        return nodes.size !== 0;
+    }
+
+    protected getAffectedNodes(uris: URI[]): Map<string, CompositeTreeNode> {
+        const nodes = new Map<string, CompositeTreeNode>();
+        for (const uri of uris) {
+            for (const node of this.getNodesByUri(uri.parent)) {
+                if (DirNode.is(node) && node.expanded) {
+                    nodes.set(node.id, node);
+                }
             }
         }
         return nodes;
@@ -101,11 +142,18 @@ export class FileTreeModel extends TreeModel implements LocationService {
         if (uri.scheme !== 'file') {
             return false;
         }
-        const node = this.selectedFileStatNode;
+        const node = this.selectedFileStatNodes[0];
         if (!node) {
             return false;
         }
         const targetUri = node.uri.resolve(uri.path.base);
+        /* Check if the folder is copied on itself */
+        const sourcePath = uri.path.toString();
+        const targetPath = node.uri.path.toString();
+        if (sourcePath === targetPath) {
+            return false;
+        }
+
         this.fileSystem.copy(uri.toString(), targetUri.toString());
         return true;
     }
@@ -113,86 +161,30 @@ export class FileTreeModel extends TreeModel implements LocationService {
     /**
      * Move the given source file or directory to the given target directory.
      */
-    async move(source: ITreeNode, target: ITreeNode) {
+    async move(source: TreeNode, target: TreeNode): Promise<void> {
         if (DirNode.is(target) && FileStatNode.is(source)) {
             const sourceUri = source.uri.toString();
+            if (target.uri.toString() === sourceUri) { /*  Folder on itself */
+                return;
+            }
             const targetUri = target.uri.resolve(source.name).toString();
-            await this.fileSystem.move(sourceUri, targetUri, { overwrite: true });
-            // to workaround https://github.com/Axosoft/nsfw/issues/42
-            this.refresh(target);
-        }
-    }
-
-    upload(node: DirNode, items: DataTransferItemList): void {
-        for (let i = 0; i < items.length; i++) {
-            const entry = items[i].webkitGetAsEntry() as WebKitEntry;
-            this.uploadEntry(node.uri, entry);
-        }
-    }
-
-    protected uploadEntry(base: URI, entry: WebKitEntry | null): void {
-        if (!entry) {
-            return;
-        }
-        if (entry.isDirectory) {
-            this.uploadDirectoryEntry(base, entry as WebKitDirectoryEntry);
-        } else {
-            this.uploadFileEntry(base, entry as WebKitFileEntry);
-        }
-    }
-
-    protected async uploadDirectoryEntry(base: URI, entry: WebKitDirectoryEntry): Promise<void> {
-        const newBase = base.resolve(entry.name);
-        const uri = newBase.toString();
-        if (!await this.fileSystem.exists(uri)) {
-            await this.fileSystem.createFolder(uri);
-        }
-        this.readEntries(entry, items => this.uploadEntries(newBase, items));
-    }
-
-    /**
-     *  Read all entries within a folder by block of 100 files or folders until the
-     *  whole folder has been read.
-     */
-    protected readEntries(entry: WebKitDirectoryEntry, cb: (items: any) => void): void {
-        const reader = entry.createReader();
-        const getEntries = () => {
-            reader.readEntries(results => {
-                if (results) {
-                    cb(results);
-                    getEntries(); // loop to read all entries
+            if (sourceUri !== targetUri) { /*  File not on itself */
+                const fileExistsInTarget = await this.fileSystem.exists(targetUri);
+                if (!fileExistsInTarget || await this.shouldReplace(source.name)) {
+                    await this.fileSystem.move(sourceUri, targetUri, { overwrite: true });
                 }
-            });
-        };
-        getEntries();
-    }
-
-    protected uploadEntries(base: URI, entries: WebKitEntry[]): void {
-        for (let i = 0; i < entries.length; i++) {
-            this.uploadEntry(base, entries[i]);
+            }
         }
     }
 
-    protected uploadFileEntry(base: URI, entry: WebKitFileEntry): void {
-        entry.file(file => this.uploadFile(base, file as any));
-    }
-
-    protected uploadFile(base: URI, file: File): void {
-        const reader = new FileReader();
-        reader.onload = () => this.uploadFileContent(base.resolve(file.name), reader.result);
-        reader.readAsArrayBuffer(file);
-    }
-
-    protected async uploadFileContent(base: URI, fileContent: Iterable<number>): Promise<void> {
-        const uri = base.toString();
-        const encoding = 'base64';
-        const content = base64.fromByteArray(new Uint8Array(fileContent));
-        if (await this.fileSystem.exists(uri)) {
-            const stat = await this.fileSystem.getFileStat(uri);
-            await this.fileSystem.setContent(stat, content, { encoding });
-        } else {
-            await this.fileSystem.createFile(uri, { content, encoding });
-        }
+    protected async shouldReplace(fileName: string): Promise<boolean> {
+        const dialog = new ConfirmDialog({
+            title: 'Replace file',
+            msg: `File '${fileName}' already exists in the destination folder. Do you want to replace it?`,
+            ok: 'Yes',
+            cancel: 'No'
+        });
+        return !!await dialog.open();
     }
 
 }

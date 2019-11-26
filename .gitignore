@@ -5,6 +5,7 @@ lib
 *.log
 .idea
 .metadata
+*.iml
 jdt.ls-java-project
 lerna-debug.log
 .nyc_output
@@ -17,3 +18,8 @@ examples/*/webpack.config.js
 package-backup.json
 .history
 .Trash-*
+packages/plugin/typedoc
+plugins
+gh-pages
+.vscode/ipch
+dev-packages/electron/compile_commands.json

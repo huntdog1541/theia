@@ -1,30 +1,38 @@
-/*
+/********************************************************************************
  * Copyright (C) 2017 TypeFox and others.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
- */
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v. 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0.
+ *
+ * This Source Code may also be made available under the following Secondary
+ * Licenses when the conditions for such availability set forth in the Eclipse
+ * Public License v. 2.0 are satisfied: GNU General Public License, version 2
+ * with the GNU Classpath Exception which is available at
+ * https://www.gnu.org/software/classpath/license.html.
+ *
+ * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
+ ********************************************************************************/
 
-import { DefaultUriLabelProviderContribution } from "@theia/core/lib/browser/label-provider";
-import URI from "@theia/core/lib/common/uri";
-import { injectable, inject } from "inversify";
-import { WorkspaceService } from "./workspace-service";
-import { FileSystem, FileStat } from "@theia/filesystem/lib/common";
-import { MaybePromise } from "@theia/core";
+import { DefaultUriLabelProviderContribution, FOLDER_ICON, FILE_ICON } from '@theia/core/lib/browser/label-provider';
+import URI from '@theia/core/lib/common/uri';
+import { injectable, inject, postConstruct } from 'inversify';
+import { FileSystem, FileStat } from '@theia/filesystem/lib/common';
+import { MaybePromise } from '@theia/core';
+import { WorkspaceVariableContribution } from './workspace-variable-contribution';
 
 @injectable()
 export class WorkspaceUriLabelProviderContribution extends DefaultUriLabelProviderContribution {
 
-    wsRoot: string;
+    @inject(FileSystem)
+    protected readonly fileSystem: FileSystem;
 
-    constructor( @inject(WorkspaceService) wsService: WorkspaceService,
-        @inject(FileSystem) protected fileSystem: FileSystem) {
-        super();
-        wsService.root.then(root => {
-            if (root) {
-                this.wsRoot = root.uri;
-            }
-        });
+    @inject(WorkspaceVariableContribution)
+    protected readonly workspaceVariable: WorkspaceVariableContribution;
+
+    @postConstruct()
+    protected async init(): Promise<void> {
+        // no-op, backward compatibility
     }
 
     canHandle(element: object): number {
@@ -34,14 +42,14 @@ export class WorkspaceUriLabelProviderContribution extends DefaultUriLabelProvid
         return 0;
     }
 
-    private getUri(element: URI | FileStat) {
+    private getUri(element: URI | FileStat): URI {
         if (FileStat.is(element)) {
             return new URI(element.uri);
         }
         return new URI(element.toString());
     }
 
-    private getStat(element: URI | FileStat): MaybePromise<FileStat> {
+    private getStat(element: URI | FileStat): MaybePromise<FileStat | undefined> {
         if (FileStat.is(element)) {
             return element;
         }
@@ -50,20 +58,16 @@ export class WorkspaceUriLabelProviderContribution extends DefaultUriLabelProvid
 
     async getIcon(element: URI | FileStat): Promise<string> {
         if (FileStat.is(element) && element.isDirectory) {
-            return 'fa fa-folder';
+            return FOLDER_ICON;
         }
         const uri = this.getUri(element);
         const icon = super.getFileIcon(uri);
         if (!icon) {
             try {
                 const stat = await this.getStat(element);
-                if (stat.isDirectory) {
-                    return 'fa fa-folder';
-                } else {
-                    return 'fa fa-file';
-                }
+                return stat && stat.isDirectory ? FOLDER_ICON : FILE_ICON;
             } catch (err) {
-                return 'fa fa-file';
+                return FILE_ICON;
             }
         }
         return icon;
@@ -78,13 +82,7 @@ export class WorkspaceUriLabelProviderContribution extends DefaultUriLabelProvid
      */
     getLongName(element: URI | FileStat): string {
         const uri = this.getUri(element);
-        if (!this.wsRoot) {
-            return super.getLongName(uri);
-        }
-        const short = uri.toString().substr(this.wsRoot.length);
-        if (short[0] === '/') {
-            return short.substr(1);
-        }
-        return short;
+        const relativePath = this.workspaceVariable.getWorkspaceRelativePath(uri);
+        return relativePath || super.getLongName(uri);
     }
 }

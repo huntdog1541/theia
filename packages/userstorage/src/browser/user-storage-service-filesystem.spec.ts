@@ -1,9 +1,18 @@
-/*
+/********************************************************************************
  * Copyright (C) 2017 Ericsson and others.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
- */
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v. 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0.
+ *
+ * This Source Code may also be made available under the following Secondary
+ * Licenses when the conditions for such availability set forth in the Eclipse
+ * Public License v. 2.0 are satisfied: GNU General Public License, version 2
+ * with the GNU Classpath Exception which is available at
+ * https://www.gnu.org/software/classpath/license.html.
+ *
+ * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
+ ********************************************************************************/
 
 import { Container } from 'inversify';
 import * as chai from 'chai';
@@ -13,9 +22,11 @@ import { UserStorageResource } from './user-storage-resource';
 import { Emitter, } from '@theia/core/lib/common';
 import { ILogger } from '@theia/core/lib/common/logger';
 import { MockLogger } from '@theia/core/lib/common/test/mock-logger';
-import { FileSystemWatcher, FileSystem, FileSystemPreferences, FileStat, FileChange, FileChangeType, createFileSystemPreferences } from '@theia/filesystem/lib/common/';
-import { PreferenceService, PreferenceServer } from '@theia/preferences-api/lib/common';
-import { MockPreferenceServer } from '@theia/preferences-api/lib/common/test';
+import { FileSystem, FileStat, FileShouldOverwrite } from '@theia/filesystem/lib/common/';
+import { FileSystemPreferences, createFileSystemPreferences } from '@theia/filesystem/lib/browser/filesystem-preferences';
+import { FileSystemWatcher, FileChange, FileChangeType } from '@theia/filesystem/lib/browser/filesystem-watcher';
+import { PreferenceService } from '@theia/core/lib/browser/preferences';
+import { MockPreferenceService } from '@theia/core/lib/browser/preferences/test/mock-preference-service';
 import { FileSystemWatcherServer } from '@theia/filesystem/lib/common/filesystem-watcher-protocol';
 import { MockFilesystem, MockFilesystemWatcherServer } from '@theia/filesystem/lib/common/test';
 import { UserStorageUri } from './user-storage-uri';
@@ -38,27 +49,30 @@ before(async () => {
     testContainer = new Container();
 
     /* Preference bindings*/
-    testContainer.bind(PreferenceService).toSelf().inSingletonScope();
-    testContainer.bind(PreferenceServer).to(MockPreferenceServer).inSingletonScope();
+    testContainer.bind(MockPreferenceService).toSelf().inSingletonScope();
+    testContainer.bind(PreferenceService).to(MockPreferenceService).inSingletonScope();
+    testContainer.bind(FileSystemPreferences).toDynamicValue(ctx => {
+        const preferences = ctx.container.get<PreferenceService>(PreferenceService);
+        sinon.stub(preferences, 'get').returns({
+            'files.watcherExclude': {
+                '**/.git/objects/**': true,
+                '**/.git/subtree-cache/**': true,
+                '**/node_modules/**': true
+            }
+        });
+        return createFileSystemPreferences(preferences);
+    }).inSingletonScope();
 
     /* FS mocks and bindings */
     testContainer.bind(FileSystemWatcherServer).to(MockFilesystemWatcherServer).inSingletonScope();
-    testContainer.bind(FileSystemWatcher).toDynamicValue(ctx => {
-        const server = ctx.container.get<FileSystemWatcherServer>(FileSystemWatcherServer);
-        const prefs = ctx.container.get<FileSystemPreferences>(FileSystemPreferences);
-        const watcher = new FileSystemWatcher(server, prefs);
-
+    testContainer.bind(FileSystemWatcher).toSelf().inSingletonScope().onActivation((_, watcher) => {
         sinon.stub(watcher, 'onFilesChanged').get(() =>
             mockOnFileChangedEmitter.event
         );
-
         return watcher;
-
-    }).inSingletonScope();
-    testContainer.bind(FileSystemPreferences).toDynamicValue(ctx => {
-        const preferences = ctx.container.get(PreferenceService);
-        return createFileSystemPreferences(preferences);
     });
+    testContainer.bind(FileShouldOverwrite).toFunction(
+        async (originalStat: FileStat, currentStat: FileStat): Promise<boolean> => true);
 
     /* Mock logger binding*/
     testContainer.bind(ILogger).to(MockLogger);

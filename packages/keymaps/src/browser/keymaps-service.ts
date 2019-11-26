@@ -1,115 +1,161 @@
-/*
+/********************************************************************************
  * Copyright (C) 2017 Ericsson and others.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
- */
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v. 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0.
+ *
+ * This Source Code may also be made available under the following Secondary
+ * Licenses when the conditions for such availability set forth in the Eclipse
+ * Public License v. 2.0 are satisfied: GNU General Public License, version 2
+ * with the GNU Classpath Exception which is available at
+ * https://www.gnu.org/software/classpath/license.html.
+ *
+ * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
+ ********************************************************************************/
 
-import { inject, injectable } from 'inversify';
-import { FrontendApplicationContribution, FrontendApplication } from '@theia/core/lib/browser';
-import { Disposable, DisposableCollection, CommandRegistry, KeybindingRegistry, ILogger, ResourceProvider, Resource } from '@theia/core/lib/common';
-import { Keybinding, KeybindingScope } from '@theia/core/lib/common';
-import { UserStorageUri } from '@theia/userstorage/lib/browser/';
+import { inject, injectable, postConstruct } from 'inversify';
 import URI from '@theia/core/lib/common/uri';
-import * as ajv from 'ajv';
-import * as jsoncparser from "jsonc-parser";
-import { ParseError } from "jsonc-parser";
+import { ResourceProvider, Resource } from '@theia/core/lib/common';
+import { Keybinding, KeybindingRegistry, KeybindingScope, OpenerService, open, WidgetOpenerOptions, Widget } from '@theia/core/lib/browser';
+import { UserStorageUri } from '@theia/userstorage/lib/browser';
+import { KeymapsParser } from './keymaps-parser';
+import * as jsoncparser from 'jsonc-parser';
+import { Emitter } from '@theia/core/lib/common/';
 
-export const keymapsSchema = {
-    "type": "array",
-    "properties": {
-        "keybinding": {
-            "type": "string"
-        },
-        "command": {
-            "type": "string"
-        },
-        "context": {
-            "type": "string"
-        },
-    },
-    "required": ["command", "keybinding"],
-    "optional": [
-        "context"
-    ],
-    "additionalProperties": false
-};
-
-export const keymapsUri: URI = new URI('keymaps.json').withScheme(UserStorageUri.SCHEME);
+/**
+ * Representation of a JSON keybinding.
+ */
+export interface KeybindingJson {
+    /**
+     * The keybinding command.
+     */
+    command: string,
+    /**
+     * The actual keybinding.
+     */
+    keybinding: string,
+    /**
+     * The keybinding context.
+     */
+    context: string,
+}
 
 @injectable()
-export class KeymapsService implements Disposable, FrontendApplicationContribution {
+export class KeymapsService {
 
-    protected readonly toDispose = new DisposableCollection();
-    protected readonly ajv = new ajv();
-    protected ready = false;
-    protected keymapsResource: Resource;
+    @inject(ResourceProvider)
+    protected readonly resourceProvider: ResourceProvider;
 
-    constructor(
-        @inject(ResourceProvider) protected readonly resourceProvider: ResourceProvider,
-        @inject(CommandRegistry) protected readonly commandRegistry: CommandRegistry,
-        @inject(KeybindingRegistry) protected readonly keyBindingRegistry: KeybindingRegistry,
-        @inject(ILogger) protected readonly logger: ILogger
-    ) {
-        this.resourceProvider(keymapsUri).then(resource => {
-            this.keymapsResource = resource;
-            this.toDispose.push(this.keymapsResource);
-            if (this.keymapsResource.onDidChangeContents) {
-                this.keymapsResource.onDidChangeContents(() => {
-                    this.onDidChangeKeymap();
-                });
+    @inject(KeybindingRegistry)
+    protected readonly keyBindingRegistry: KeybindingRegistry;
+
+    @inject(OpenerService)
+    protected readonly opener: OpenerService;
+
+    @inject(KeymapsParser)
+    protected readonly parser: KeymapsParser;
+
+    protected readonly changeKeymapEmitter = new Emitter<void>();
+    onDidChangeKeymaps = this.changeKeymapEmitter.event;
+
+    protected resource: Resource;
+
+    /**
+     * Initialize the keybinding service.
+     */
+    @postConstruct()
+    protected async init(): Promise<void> {
+        this.resource = await this.resourceProvider(new URI().withScheme(UserStorageUri.SCHEME).withPath('keymaps.json'));
+        this.reconcile();
+        if (this.resource.onDidChangeContents) {
+            this.resource.onDidChangeContents(() => this.reconcile());
+        }
+        this.keyBindingRegistry.onKeybindingsChanged(() => this.changeKeymapEmitter.fire(undefined));
+    }
+
+    /**
+     * Reconcile all the keybindings, registering them to the registry.
+     */
+    protected async reconcile(): Promise<void> {
+        const keybindings = await this.parseKeybindings();
+        this.keyBindingRegistry.setKeymap(KeybindingScope.USER, keybindings);
+        this.changeKeymapEmitter.fire(undefined);
+    }
+
+    /**
+     * Parsed the read keybindings.
+     */
+    protected async parseKeybindings(): Promise<Keybinding[]> {
+        try {
+            const content = await this.resource.readContents();
+            return this.parser.parse(content);
+        } catch (error) {
+            return error;
+        }
+    }
+
+    /**
+     * Open the keybindings widget.
+     * @param ref the optional reference for opening the widget.
+     */
+    open(ref?: Widget): void {
+        const options: WidgetOpenerOptions = {
+            widgetOptions: ref ? { area: 'main', mode: 'split-right', ref } : { area: 'main' },
+            mode: 'activate'
+        };
+        open(this.opener, this.resource.uri, options);
+    }
+
+    /**
+     * Set the keybinding in the JSON.
+     * @param keybindingJson the JSON keybindings.
+     */
+    async setKeybinding(keybindingJson: KeybindingJson): Promise<void> {
+        if (!this.resource.saveContents) {
+            return;
+        }
+        const content = await this.resource.readContents();
+        const keybindings: KeybindingJson[] = content ? jsoncparser.parse(content) : [];
+        let updated = false;
+        for (let i = 0; i < keybindings.length; i++) {
+            if (keybindings[i].command === keybindingJson.command) {
+                updated = true;
+                keybindings[i].keybinding = keybindingJson.keybinding;
             }
-
-            this.keymapsResource.readContents().then(content => {
-                this.parseKeybindings(content);
-            });
-        });
-    }
-
-    dispose(): void {
-        this.toDispose.dispose();
-    }
-
-    onStart(app: FrontendApplication): void {
-        this.ready = true;
-    }
-
-    protected onDidChangeKeymap(): void {
-
-        this.keymapsResource.readContents().then(content => {
-            this.parseKeybindings(content);
-        });
-    }
-
-    protected parseKeybindings(content: string) {
-        const strippedContent = jsoncparser.stripComments(content);
-        const errors: ParseError[] = [];
-        const keybindings = jsoncparser.parse(strippedContent, errors);
-        if (errors.length) {
-            for (const error of errors) {
-                this.logger.error("JSON parsing error", error);
-            }
-            this.keyBindingRegistry.resetKeybindingsForScope(KeybindingScope.USER);
-
         }
-        if (keybindings) {
-            this.setKeymap(keybindings);
+        if (!updated) {
+            const item: KeybindingJson = { ...keybindingJson };
+            keybindings.push(item);
         }
+        await this.resource.saveContents(JSON.stringify(keybindings, undefined, 4));
     }
 
-    protected setKeymap(keybindings: any) {
-        const bindings: Keybinding[] = [];
-
-        for (const keybinding of keybindings) {
-            bindings.push({
-                command: keybinding.command,
-                keybinding: keybinding.keybinding,
-                context: keybinding.context
-            });
+    /**
+     * Remove the given keybinding with the given command id from the JSON.
+     * @param commandId the keybinding command id.
+     */
+    async removeKeybinding(commandId: string): Promise<void> {
+        if (!this.resource.saveContents) {
+            return;
         }
-
-        if (this.ajv.validate(keymapsSchema, bindings)) {
-            this.keyBindingRegistry.setKeymap(KeybindingScope.USER, bindings);
-        }
+        const content = await this.resource.readContents();
+        const keybindings: KeybindingJson[] = content ? jsoncparser.parse(content) : [];
+        const filtered = keybindings.filter(a => a.command !== commandId);
+        await this.resource.saveContents(JSON.stringify(filtered, undefined, 4));
     }
+
+    /**
+     * Get the list of keybindings from the JSON.
+     *
+     * @returns the list of keybindings in JSON.
+     */
+    async getKeybindings(): Promise<KeybindingJson[]> {
+        if (!this.resource.saveContents) {
+            return [];
+        }
+        const content = await this.resource.readContents();
+        return content ? jsoncparser.parse(content) : [];
+    }
+
 }

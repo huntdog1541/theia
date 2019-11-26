@@ -1,11 +1,20 @@
-/*
- * Copyright (C) 2017 Ericsson and others.
+/********************************************************************************
+ * Copyright (C) 2017-2018 Ericsson and others.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
- */
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v. 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0.
+ *
+ * This Source Code may also be made available under the following Secondary
+ * Licenses when the conditions for such availability set forth in the Eclipse
+ * Public License v. 2.0 are satisfied: GNU General Public License, version 2
+ * with the GNU Classpath Exception which is available at
+ * https://www.gnu.org/software/classpath/license.html.
+ *
+ * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
+ ********************************************************************************/
 
-import "webdriverio";
+import 'webdriverio';
 
 export class TopPanel {
 
@@ -15,33 +24,77 @@ export class TopPanel {
         return this.driver.isExisting('div#theia-top-panel');
     }
 
-    openNewTerminal() {
-        this.clickMenuTab('File');
+    openNewTerminal(): void {
+        this.clickMenuTab('Terminal');
         this.clickSubMenu('New Terminal');
     }
 
-    openProblemsView() {
+    toggleCallHierarchyView(): void {
+        this.clickMenuTab('View');
+        this.clickSubMenu('Call Hierarchy');
+    }
+
+    toggleFilesView(): void {
+        this.clickMenuTab('View');
+        this.clickSubMenu('Explorer');
+    }
+
+    toggleScmView(): void {
+        this.clickMenuTab('View');
+        this.clickSubMenu('SCM');
+    }
+
+    toggleGitHistoryView(): void {
+        this.clickMenuTab('View');
+        this.clickSubMenu('Git History');
+    }
+
+    toggleOutlineView(): void {
+        this.clickMenuTab('View');
+        this.clickSubMenu('Outline');
+    }
+
+    toggleOutputView(): void {
+        this.clickMenuTab('View');
+        this.clickSubMenu('Output');
+    }
+
+    openPluginsView(): void {
+        this.clickMenuTab('View');
+        this.clickSubMenu('Plugins');
+    }
+
+    openProblemsView(): void {
         this.clickMenuTab('View');
         this.clickSubMenu('Problems');
+    }
+
+    toggleSearchView(): void {
+        this.clickMenuTab('View');
+        this.clickSubMenu('Search');
+    }
+
+    waitForSubMenu(): void {
+        this.driver.waitForExist('div.p-Widget.p-Menu.p-MenuBar-menu');
     }
 
     isSubMenuVisible(): boolean {
         return this.driver.isExisting('div.p-Widget.p-Menu.p-MenuBar-menu');
     }
 
-    clickMenuTab(tab: number | string) {
-        if (typeof tab === "string") {
-            this.driver.element(`ul.p-MenuBar-content`).click(`div\=${tab}`);
+    clickMenuTab(tab: number | string): void {
+        if (typeof tab === 'string') {
+            this.driver.element('ul.p-MenuBar-content').click(`div=${tab}`);
         } else {
             this.driver.click(`ul.p-MenuBar-content > .p-MenuBar-item:nth-child(${tab})`);
         }
     }
 
-    clickSubMenu(subMenuItem: string) {
-        this.driver.element(`div.p-Widget.p-Menu.p-MenuBar-menu .p-Menu-content`).click(`div\=${subMenuItem}`);
+    clickSubMenu(subMenuItem: string): void {
+        this.driver.element('div.p-Widget.p-Menu.p-MenuBar-menu .p-Menu-content').click(`div=${subMenuItem}`);
     }
 
-    hoverMenuTab(tabNumber: number) {
+    hoverMenuTab(tabNumber: number): void {
         this.driver.moveToObject(`ul.p-MenuBar-content > .p-MenuBar-item:nth-child(${tabNumber})`);
     }
 
@@ -50,14 +103,14 @@ export class TopPanel {
     }
 
     isMenuActive(): boolean {
-        return this.driver.isExisting(`#theia\\:menubar.p-mod-active`);
+        return this.driver.isExisting('#theia\\:menubar.p-mod-active');
     }
 
-    getxBarTabPosition(tabNumber: number) {
+    getxBarTabPosition(tabNumber: number): WebdriverIO.Client<number> & number {
         return this.driver.getLocation(`ul.p-MenuBar-content > .p-MenuBar-item:nth-child(${tabNumber}`, 'x');
     }
 
     getxSubMenuPosition(): number {
-        return this.driver.getLocation(`div.p-Widget.p-Menu.p-MenuBar-menu`, 'x');
+        return this.driver.getLocation('div.p-Widget.p-Menu.p-MenuBar-menu', 'x');
     }
 }

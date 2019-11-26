@@ -1,19 +1,22 @@
-/*
+/********************************************************************************
  * Copyright (C) 2017 Ericsson and others.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
- */
-import * as chai from 'chai';
-import 'mocha';
-import * as chaiAsPromised from 'chai-as-promised';
-import { testContainer } from './test/inversify.spec-config';
-import { TerminalWatcher } from '../common/terminal-watcher';
-import { ITerminalServer } from '../common/terminal-protocol';
-import { IBaseTerminalExitEvent } from '../common/base-terminal-protocol';
-import { isWindows } from "@theia/core/lib/common";
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v. 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0.
+ *
+ * This Source Code may also be made available under the following Secondary
+ * Licenses when the conditions for such availability set forth in the Eclipse
+ * Public License v. 2.0 are satisfied: GNU General Public License, version 2
+ * with the GNU Classpath Exception which is available at
+ * https://www.gnu.org/software/classpath/license.html.
+ *
+ * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
+ ********************************************************************************/
 
-chai.use(chaiAsPromised);
+import * as chai from 'chai';
+import { createTerminalTestContainer } from './test/terminal-test-container';
+import { ITerminalServer } from '../common/terminal-protocol';
 
 /**
  * Globals
@@ -21,42 +24,24 @@ chai.use(chaiAsPromised);
 
 const expect = chai.expect;
 
-describe('TermninalServer', function () {
+describe('TermninalServer', function (): void {
 
     this.timeout(5000);
-    const terminalServer = testContainer.get<ITerminalServer>(ITerminalServer);
-    const terminalWatcher = testContainer.get<TerminalWatcher>(TerminalWatcher);
+    let terminalServer: ITerminalServer;
 
-    it('test terminal create', function () {
-        const args = ['--version'];
-        const createResult = terminalServer.create({ command: process.execPath, 'args': args });
-        return expect(createResult).to.be.eventually.greaterThan(-1);
+    beforeEach(() => {
+        const container = createTerminalTestContainer();
+        terminalServer = container.get(ITerminalServer);
     });
 
-    it('test terminal create from non-existant path', function () {
-        terminalServer.setClient(terminalWatcher.getTerminalClient());
-        const createResult = terminalServer.create({ command: '/non-existant' });
-        if (isWindows) {
-            return expect(createResult).to.eventually.equal(-1);
-        } else {
-            const errorPromise = new Promise<void>((resolve, reject) => {
-                createResult.then((termId: number) => {
-                    terminalWatcher.onTerminalExit((event: IBaseTerminalExitEvent) => {
-                        if (event.terminalId === termId) {
-                            if (event.code === 1) {
-                                resolve();
-                            } else {
-                                reject();
-                            }
-                        }
-                    });
-                });
-            });
+    it('test terminal create', async function (): Promise<void> {
+        const args = ['--version'];
+        const createResult = await terminalServer.create({ command: process.execPath, 'args': args });
+        expect(createResult).to.be.greaterThan(-1);
+    });
 
-            return Promise.all([
-                expect(createResult).to.be.eventually.greaterThan(-1),
-                expect(errorPromise).to.be.eventually.fulfilled],
-            );
-        }
+    it('test terminal create from non-existent path', async function (): Promise<void> {
+        const createError = await terminalServer.create({ command: '/non-existent' });
+        expect(createError).eq(-1);
     });
 });

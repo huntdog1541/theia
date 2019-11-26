@@ -1,22 +1,33 @@
-/*
+/********************************************************************************
  * Copyright (C) 2017 TypeFox and others.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
- */
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v. 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0.
+ *
+ * This Source Code may also be made available under the following Secondary
+ * Licenses when the conditions for such availability set forth in the Eclipse
+ * Public License v. 2.0 are satisfied: GNU General Public License, version 2
+ * with the GNU Classpath Exception which is available at
+ * https://www.gnu.org/software/classpath/license.html.
+ *
+ * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
+ ********************************************************************************/
 
+import { setUriThrowOnMissingScheme } from 'vscode-uri';
 import Uri from 'vscode-uri';
-import { Path } from "./path";
+import { Path } from './path';
+
+// TODO: disable it because of #4487
+setUriThrowOnMissingScheme(false);
 
 export default class URI {
 
     private readonly codeUri: Uri;
     private _path: Path | undefined;
 
-    constructor(uri?: string | Uri) {
-        if (uri === undefined) {
-            this.codeUri = Uri.from({});
-        } else if (uri instanceof Uri) {
+    constructor(uri: string | Uri = '') {
+        if (uri instanceof Uri) {
             this.codeUri = uri;
         } else {
             this.codeUri = Uri.parse(uri);
@@ -40,7 +51,7 @@ export default class URI {
     get allLocations(): URI[] {
         const locations = [];
         let location: URI = this;
-        while (!location.path.isRoot) {
+        while (!location.path.isRoot && location.path.hasDir) {
             locations.push(location);
             location = location.parent;
         }
@@ -53,6 +64,13 @@ export default class URI {
             return this;
         }
         return this.withPath(this.path.dir);
+    }
+
+    relative(uri: URI): Path | undefined {
+        if (this.authority !== uri.authority || this.scheme !== uri.scheme) {
+            return undefined;
+        }
+        return this.path.relative(uri.path);
     }
 
     resolve(path: string | Path): URI {
@@ -71,18 +89,12 @@ export default class URI {
     }
 
     /**
-     * return this URI without a scheme
-     */
-    withoutScheme(): URI {
-        return this.withScheme('');
-    }
-
-    /**
      * return a new URI replacing the current with the given authority
      */
     withAuthority(authority: string): URI {
         const newCodeUri = Uri.from({
             ...this.codeUri.toJSON(),
+            scheme: this.codeUri.scheme,
             authority
         });
         return new URI(newCodeUri);
@@ -101,6 +113,7 @@ export default class URI {
     withPath(path: string | Path): URI {
         const newCodeUri = Uri.from({
             ...this.codeUri.toJSON(),
+            scheme: this.codeUri.scheme,
             path: path.toString()
         });
         return new URI(newCodeUri);
@@ -119,6 +132,7 @@ export default class URI {
     withQuery(query: string): URI {
         const newCodeUri = Uri.from({
             ...this.codeUri.toJSON(),
+            scheme: this.codeUri.scheme,
             query
         });
         return new URI(newCodeUri);
@@ -137,6 +151,7 @@ export default class URI {
     withFragment(fragment: string): URI {
         const newCodeUri = Uri.from({
             ...this.codeUri.toJSON(),
+            scheme: this.codeUri.scheme,
             fragment
         });
         return new URI(newCodeUri);
@@ -147,6 +162,13 @@ export default class URI {
      */
     withoutFragment(): URI {
         return this.withFragment('');
+    }
+
+    /**
+     * return a new URI replacing the current with its normalized path, resolving '..' and '.' segments
+     */
+    normalizePath(): URI {
+        return this.withPath(this.path.normalize());
     }
 
     get scheme(): string {
@@ -172,8 +194,22 @@ export default class URI {
         return this.codeUri.fragment;
     }
 
-    toString(skipEncoding?: boolean) {
+    toString(skipEncoding?: boolean): string {
         return this.codeUri.toString(skipEncoding);
+    }
+
+    isEqualOrParent(uri: URI): boolean {
+        return this.authority === uri.authority && this.scheme === uri.scheme && this.path.isEqualOrParent(uri.path);
+    }
+
+    static getDistinctParents(uris: URI[]): URI[] {
+        const result: URI[] = [];
+        uris.forEach((uri, i) => {
+            if (!uris.some((otherUri, index) => index !== i && otherUri.isEqualOrParent(uri))) {
+                result.push(uri);
+            }
+        });
+        return result;
     }
 
 }

@@ -1,139 +1,116 @@
-/*
+/********************************************************************************
  * Copyright (C) 2017 TypeFox and others.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
- */
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v. 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0.
+ *
+ * This Source Code may also be made available under the following Secondary
+ * Licenses when the conditions for such availability set forth in the Eclipse
+ * Public License v. 2.0 are satisfied: GNU General Public License, version 2
+ * with the GNU Classpath Exception which is available at
+ * https://www.gnu.org/software/classpath/license.html.
+ *
+ * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
+ ********************************************************************************/
 
-import { injectable, inject } from "inversify";
-import URI from "@theia/core/lib/common/uri";
-import { Emitter, Event, RecursivePartial, SelectionService } from '@theia/core/lib/common';
-import { OpenHandler, FrontendApplication } from "@theia/core/lib/browser";
-import { EditorWidget } from "./editor-widget";
-import { TextEditorProvider, Range, Position } from "./editor";
-import { WidgetFactory, WidgetManager } from '@theia/core/lib/browser/widget-manager';
-import { Widget } from '@phosphor/widgets';
-import { LabelProvider } from "@theia/core/lib/browser/label-provider";
+import { injectable, postConstruct, inject } from 'inversify';
+import URI from '@theia/core/lib/common/uri';
+import { RecursivePartial, Emitter, Event } from '@theia/core/lib/common';
+import { WidgetOpenerOptions, NavigatableWidgetOpenHandler } from '@theia/core/lib/browser';
+import { EditorWidget } from './editor-widget';
+import { Range, Position, Location } from './editor';
+import { EditorWidgetFactory } from './editor-widget-factory';
+import { TextEditor } from './editor';
 
-export const EditorManager = Symbol("EditorManager");
-
-export interface EditorManager extends OpenHandler {
-    /**
-     * All opened editors.
-     */
-    readonly editors: EditorWidget[];
-    /**
-     * Open an editor for the given uri and input.
-     * Reject if the given input is not an editor input or an editor cannot be opened.
-     */
-    open(uri: URI, input?: EditorInput): Promise<EditorWidget>;
-    /**
-     * The most recently focused editor.
-     */
-    readonly currentEditor: EditorWidget | undefined;
-    /**
-     * Emit when the current editor changed.
-     */
-    readonly onCurrentEditorChanged: Event<EditorWidget | undefined>;
-    /**
-     * The currently focused editor.
-     */
-    readonly activeEditor: EditorWidget | undefined;
-    /**
-     * Emit when the active editor changed.
-     */
-    readonly onActiveEditorChanged: Event<EditorWidget | undefined>;
-}
-
-export interface EditorInput {
-    revealIfVisible?: boolean;
+export interface EditorOpenerOptions extends WidgetOpenerOptions {
     selection?: RecursivePartial<Range>;
+    preview?: boolean;
 }
 
 @injectable()
-export class EditorManagerImpl implements EditorManager, WidgetFactory {
+export class EditorManager extends NavigatableWidgetOpenHandler<EditorWidget> {
 
-    readonly id = "code-editor-opener";
-    readonly label = "Code Editor";
+    readonly id = EditorWidgetFactory.ID;
 
-    protected readonly currentObserver: EditorManagerImpl.Observer;
-    protected readonly activeObserver: EditorManagerImpl.Observer;
+    readonly label = 'Code Editor';
 
-    constructor(
-        @inject(TextEditorProvider) protected readonly editorProvider: TextEditorProvider,
-        @inject(SelectionService) protected readonly selectionService: SelectionService,
-        @inject(FrontendApplication) protected readonly app: FrontendApplication,
-        @inject(WidgetManager) protected readonly widgetManager: WidgetManager,
-        @inject(LabelProvider) protected readonly labelProvider: LabelProvider
-    ) {
-        this.currentObserver = new EditorManagerImpl.Observer('current', app);
-        this.activeObserver = new EditorManagerImpl.Observer('active', app);
+    protected readonly onActiveEditorChangedEmitter = new Emitter<EditorWidget | undefined>();
+    /**
+     * Emit when the active editor is changed.
+     */
+    readonly onActiveEditorChanged: Event<EditorWidget | undefined> = this.onActiveEditorChangedEmitter.event;
+
+    protected readonly onCurrentEditorChangedEmitter = new Emitter<EditorWidget | undefined>();
+    /**
+     * Emit when the current editor is changed.
+     */
+    readonly onCurrentEditorChanged: Event<EditorWidget | undefined> = this.onCurrentEditorChangedEmitter.event;
+
+    @postConstruct()
+    protected init(): void {
+        super.init();
+        this.shell.activeChanged.connect(() => this.updateActiveEditor());
+        this.shell.currentChanged.connect(() => this.updateCurrentEditor());
+        this.onCreated(widget => widget.disposed.connect(() => this.updateCurrentEditor()));
     }
 
-    get editors() {
-        return this.widgetManager.getWidgets(this.id) as EditorWidget[];
+    protected _activeEditor: EditorWidget | undefined;
+    /**
+     * The active editor.
+     * If there is an active editor (one that has focus), active and current are the same.
+     */
+    get activeEditor(): EditorWidget | undefined {
+        return this._activeEditor;
+    }
+    protected setActiveEditor(active: EditorWidget | undefined): void {
+        if (this._activeEditor !== active) {
+            this._activeEditor = active;
+            this.onActiveEditorChangedEmitter.fire(this._activeEditor);
+        }
+    }
+    protected updateActiveEditor(): void {
+        const widget = this.shell.activeWidget;
+        this.setActiveEditor(widget instanceof EditorWidget ? widget : undefined);
     }
 
-    get currentEditor() {
-        return this.currentObserver.getEditor();
+    protected _currentEditor: EditorWidget | undefined;
+    /**
+     * The most recently activated editor (which might not have the focus anymore, hence it is not active).
+     * If no editor has focus, e.g. when a context menu is shown, the active editor is `undefined`, but current might be the editor that was active before the menu popped up.
+     */
+    get currentEditor(): EditorWidget | undefined {
+        return this._currentEditor;
     }
-
-    get onCurrentEditorChanged() {
-        return this.currentObserver.onEditorChanged();
+    protected setCurrentEditor(current: EditorWidget | undefined): void {
+        if (this._currentEditor !== current) {
+            this._currentEditor = current;
+            this.onCurrentEditorChangedEmitter.fire(this._currentEditor);
+        }
     }
-
-    get activeEditor() {
-        return this.activeObserver.getEditor();
-    }
-
-    get onActiveEditorChanged() {
-        return this.activeObserver.onEditorChanged();
-    }
-
-    canHandle(uri: URI, input?: EditorInput): number {
-        return 100;
-    }
-
-    open(uri: URI, input?: EditorInput): Promise<EditorWidget> {
-        return this.widgetManager.getOrCreateWidget<EditorWidget>(this.id, uri.toString()).then(editor => {
-            if (!editor.isAttached) {
-                this.app.shell.addWidget(editor, { area: 'main' });
-            }
-            this.revealIfVisible(editor, input);
-            this.revealSelection(editor, input);
-            return editor;
-        });
-    }
-
-    // don't call directly, but use WidgetManager
-    createWidget(uriAsString: string): Promise<Widget> {
-        const uri = new URI(uriAsString);
-        return this.createEditor(uri);
-    }
-
-    protected async createEditor(uri: URI): Promise<EditorWidget> {
-        const icon = await this.labelProvider.getIcon(uri);
-        return this.editorProvider(uri).then(textEditor => {
-            const newEditor = new EditorWidget(textEditor, this.selectionService);
-            newEditor.id = this.id + ":" + uri.toString();
-            newEditor.title.closable = true;
-            newEditor.title.label = this.labelProvider.getName(uri);
-            newEditor.title.iconClass = icon + ' file-icon';
-            newEditor.title.caption = this.labelProvider.getLongName(uri);
-            return newEditor;
-        });
-    }
-
-    protected revealIfVisible(editor: EditorWidget, input?: EditorInput): void {
-        if (input === undefined || input.revealIfVisible === undefined || input.revealIfVisible) {
-            this.app.shell.activateWidget(editor.id);
+    protected updateCurrentEditor(): void {
+        const widget = this.shell.currentWidget;
+        if (widget instanceof EditorWidget) {
+            this.setCurrentEditor(widget);
+        } else if (!this._currentEditor || !this._currentEditor.isVisible) {
+            this.setCurrentEditor(undefined);
         }
     }
 
-    protected revealSelection(widget: EditorWidget, input?: EditorInput): void {
+    canHandle(uri: URI, options?: WidgetOpenerOptions): number {
+        return 100;
+    }
+
+    async open(uri: URI, options?: EditorOpenerOptions): Promise<EditorWidget> {
+        const editor = await super.open(uri, options);
+        this.revealSelection(editor, options);
+        return editor;
+    }
+
+    protected revealSelection(widget: EditorWidget, input?: EditorOpenerOptions): void {
         if (input && input.selection) {
             const editor = widget.editor;
-            const selection = this.getSelection(input.selection);
+            const selection = this.getSelection(widget, input.selection);
             if (Position.is(selection)) {
                 editor.cursor = selection;
                 editor.revealPosition(selection);
@@ -145,50 +122,116 @@ export class EditorManagerImpl implements EditorManager, WidgetFactory {
         }
     }
 
-    protected getSelection(selection: RecursivePartial<Range>): Range | Position | undefined {
+    protected getSelection(widget: EditorWidget, selection: RecursivePartial<Range>): Range | Position | undefined {
         const { start, end } = selection;
-        if (start && start.line !== undefined && start.line >= 0 &&
-            start.character !== undefined && start.character >= 0) {
-            if (end && end.line !== undefined && end.line >= 0 &&
-                end.character !== undefined && end.character >= 0) {
-                return selection as Range;
-            }
-            return start as Position;
+        const line = start && start.line !== undefined && start.line >= 0 ? start.line : undefined;
+        if (line === undefined) {
+            return undefined;
         }
-        return undefined;
+        const character = start && start.character !== undefined && start.character >= 0 ? start.character : widget.editor.document.getLineMaxColumn(line);
+        const endLine = end && end.line !== undefined && end.line >= 0 ? end.line : undefined;
+        if (endLine === undefined) {
+            return { line, character };
+        }
+        const endCharacter = end && end.character !== undefined && end.character >= 0 ? end.character : widget.editor.document.getLineMaxColumn(endLine);
+        return {
+            start: { line, character },
+            end: { line: endLine, character: endCharacter }
+        };
     }
 
 }
 
-export namespace EditorManagerImpl {
-    export class Observer {
-        protected readonly onEditorChangedEmitter = new Emitter<EditorWidget | undefined>();
+/**
+ * Provides direct access to the underlying text editor.
+ */
+@injectable()
+export abstract class EditorAccess {
 
-        constructor(
-            protected readonly kind: 'current' | 'active',
-            protected readonly app: FrontendApplication
-        ) {
-            const key = this.kind === 'current' ? 'currentChanged' : 'activeChanged';
-            app.shell[key].connect((shell, arg) => {
-                if (arg.newValue instanceof EditorWidget || arg.oldValue instanceof EditorWidget) {
-                    this.onEditorChangedEmitter.fire(this.getEditor());
-                }
-            });
-        }
+    @inject(EditorManager)
+    protected readonly editorManager: EditorManager;
 
-        getEditor(): EditorWidget | undefined {
-            if (this.app) {
-                const key = this.kind === 'current' ? 'currentWidget' : 'activeWidget';
-                const widget = this.app.shell[key];
-                if (widget instanceof EditorWidget) {
-                    return widget;
-                }
-            }
-            return undefined;
+    /**
+     * The URI of the underlying document from the editor.
+     */
+    get uri(): string | undefined {
+        const editor = this.editor;
+        if (editor) {
+            return editor.uri.toString();
         }
-
-        onEditorChanged() {
-            return this.onEditorChangedEmitter.event;
-        }
+        return undefined;
     }
+
+    /**
+     * The selection location from the text editor.
+     */
+    get selection(): Location | undefined {
+        const editor = this.editor;
+        if (editor) {
+            const uri = editor.uri.toString();
+            const range = editor.selection;
+            return {
+                range,
+                uri
+            };
+        }
+        return undefined;
+    }
+
+    /**
+     * The unique identifier of the language the current editor belongs to.
+     */
+    get languageId(): string | undefined {
+        const editor = this.editor;
+        if (editor) {
+            return editor.document.languageId;
+        }
+        return undefined;
+    }
+
+    /**
+     * The text editor.
+     */
+    get editor(): TextEditor | undefined {
+        const editorWidget = this.editorWidget();
+        if (editorWidget) {
+            return editorWidget.editor;
+        }
+        return undefined;
+    }
+
+    /**
+     * The editor widget, or `undefined` if not applicable.
+     */
+    protected abstract editorWidget(): EditorWidget | undefined;
+
+}
+
+/**
+ * Provides direct access to the currently active text editor.
+ */
+@injectable()
+export class CurrentEditorAccess extends EditorAccess {
+
+    protected editorWidget(): EditorWidget | undefined {
+        return this.editorManager.currentEditor;
+    }
+
+}
+
+/**
+ * Provides access to the active text editor.
+ */
+@injectable()
+export class ActiveEditorAccess extends EditorAccess {
+
+    protected editorWidget(): EditorWidget | undefined {
+        return this.editorManager.activeEditor;
+    }
+
+}
+
+export namespace EditorAccess {
+    export const CURRENT = 'current-editor-access';
+    export const ACTIVE = 'active-editor-access';
 }

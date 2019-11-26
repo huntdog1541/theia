@@ -1,24 +1,35 @@
-/*
- * Copyright (C) 2017 TypeFox and others.
+/********************************************************************************
+ * Copyright (C) 2017-2018 TypeFox and others.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
- */
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v. 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0.
+ *
+ * This Source Code may also be made available under the following Secondary
+ * Licenses when the conditions for such availability set forth in the Eclipse
+ * Public License v. 2.0 are satisfied: GNU General Public License, version 2
+ * with the GNU Classpath Exception which is available at
+ * https://www.gnu.org/software/classpath/license.html.
+ *
+ * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
+ ********************************************************************************/
 
-import * as fs from "fs";
-import * as nsfw from "nsfw";
-import * as paths from "path";
-import { IMinimatch, Minimatch } from "minimatch";
+import * as fs from 'fs';
+import * as nsfw from 'nsfw';
+import * as paths from 'path';
+import { IMinimatch, Minimatch } from 'minimatch';
 import { Disposable, DisposableCollection } from '@theia/core/lib/common/disposable';
-import { FileUri } from "@theia/core/lib/node/file-uri";
+import { FileUri } from '@theia/core/lib/node/file-uri';
 import {
-    FileChange,
     FileChangeType,
     FileSystemWatcherClient,
     FileSystemWatcherServer,
     WatchOptions
 } from '../../common/filesystem-watcher-protocol';
-import { setInterval, clearInterval } from "timers";
+import { FileChangeCollection } from '../file-change-collection';
+import { setInterval, clearInterval } from 'timers';
+
+const debounce = require('lodash.debounce');
 
 // tslint:disable:no-any
 
@@ -34,11 +45,11 @@ export class NsfwFileSystemWatcherServer implements FileSystemWatcherServer {
     protected readonly watchers = new Map<number, Disposable>();
     protected readonly watcherOptions = new Map<number, WatcherOptions>();
 
-    protected readonly toDispose = new DisposableCollection();
+    protected readonly toDispose = new DisposableCollection(
+        Disposable.create(() => this.setClient(undefined))
+    );
 
-    protected changes: FileChange[] = [];
-    protected readonly fireDidFilesChangedTimeout = 50;
-    protected readonly toDisposeOnFileChange = new DisposableCollection();
+    protected changes = new FileChangeCollection();
 
     protected readonly options: {
         verbose: boolean
@@ -67,28 +78,28 @@ export class NsfwFileSystemWatcherServer implements FileSystemWatcherServer {
         const watcherId = this.watcherSequence++;
         const basePath = FileUri.fsPath(uri);
         this.debug('Starting watching:', basePath);
+        const toDisposeWatcher = new DisposableCollection();
+        this.watchers.set(watcherId, toDisposeWatcher);
+        toDisposeWatcher.push(Disposable.create(() => this.watchers.delete(watcherId)));
         if (fs.existsSync(basePath)) {
-            await this.start(watcherId, basePath, options);
+            this.start(watcherId, basePath, options, toDisposeWatcher);
         } else {
-            const disposable = new DisposableCollection();
+            const toClearTimer = new DisposableCollection();
             const timer = setInterval(() => {
                 if (fs.existsSync(basePath)) {
-                    disposable.dispose();
+                    toClearTimer.dispose();
                     this.pushAdded(watcherId, basePath);
-                    this.start(watcherId, basePath, options);
+                    this.start(watcherId, basePath, options, toDisposeWatcher);
                 }
             }, 500);
-            disposable.push(Disposable.create(() => {
-                this.watchers.delete(watcherId);
-                clearInterval(timer);
-            }));
-            this.toDispose.push(disposable);
-            return watcherId;
+            toClearTimer.push(Disposable.create(() => clearInterval(timer)));
+            toDisposeWatcher.push(toClearTimer);
         }
+        this.toDispose.push(toDisposeWatcher);
         return watcherId;
     }
 
-    protected async start(watcherId: number, basePath: string, rawOptions?: WatchOptions): Promise<void> {
+    protected async start(watcherId: number, basePath: string, rawOptions: WatchOptions | undefined, toDisposeWatcher: DisposableCollection): Promise<void> {
         const options: WatchOptions = {
             ignored: [],
             ...rawOptions
@@ -96,37 +107,53 @@ export class NsfwFileSystemWatcherServer implements FileSystemWatcherServer {
         if (options.ignored.length > 0) {
             this.debug('Files ignored for watching', options.ignored);
         }
-        const watcher = await nsfw(fs.realpathSync(basePath), events => {
+
+        let watcher: nsfw.NSFW | undefined = await nsfw(fs.realpathSync(basePath), (events: nsfw.ChangeEvent[]) => {
             for (const event of events) {
                 if (event.action === nsfw.actions.CREATED) {
-                    this.pushAdded(watcherId, paths.join(event.directory, event.file!));
+                    this.pushAdded(watcherId, this.resolvePath(event.directory, event.file!));
                 }
                 if (event.action === nsfw.actions.DELETED) {
-                    this.pushDeleted(watcherId, paths.join(event.directory, event.file!));
+                    this.pushDeleted(watcherId, this.resolvePath(event.directory, event.file!));
                 }
                 if (event.action === nsfw.actions.MODIFIED) {
-                    this.pushUpdated(watcherId, paths.join(event.directory, event.file!));
+                    this.pushUpdated(watcherId, this.resolvePath(event.directory, event.file!));
                 }
                 if (event.action === nsfw.actions.RENAMED) {
-                    this.pushDeleted(watcherId, paths.join(event.directory, event.oldFile!));
-                    this.pushAdded(watcherId, paths.join(event.directory, event.newFile!));
+                    this.pushDeleted(watcherId, this.resolvePath(event.directory, event.oldFile!));
+                    this.pushAdded(watcherId, this.resolvePath(event.newDirectory || event.directory, event.newFile!));
                 }
             }
-        });
+        }, {
+                errorCallback: error => {
+                    // see https://github.com/atom/github/issues/342
+                    console.warn(`Failed to watch "${basePath}":`, error);
+                    this.unwatchFileChanges(watcherId);
+                }
+            });
         await watcher.start();
         this.options.info('Started watching:', basePath);
-        const disposable = Disposable.create(() => {
-            this.watcherOptions.delete(watcherId);
-            this.watchers.delete(watcherId);
+        if (toDisposeWatcher.disposed) {
             this.debug('Stopping watching:', basePath);
-            watcher.stop();
-            this.options.info('Stopped watching.');
-        });
+            await watcher.stop();
+            // remove a reference to nsfw otherwise GC cannot collect it
+            watcher = undefined;
+            this.options.info('Stopped watching:', basePath);
+            return;
+        }
+        toDisposeWatcher.push(Disposable.create(async () => {
+            this.watcherOptions.delete(watcherId);
+            if (watcher) {
+                this.debug('Stopping watching:', basePath);
+                await watcher.stop();
+                // remove a reference to nsfw otherwise GC cannot collect it
+                watcher = undefined;
+                this.options.info('Stopped watching:', basePath);
+            }
+        }));
         this.watcherOptions.set(watcherId, {
             ignored: options.ignored.map(pattern => new Minimatch(pattern))
         });
-        this.watchers.set(watcherId, disposable);
-        this.toDispose.push(disposable);
     }
 
     unwatchFileChanges(watcherId: number): Promise<void> {
@@ -138,7 +165,10 @@ export class NsfwFileSystemWatcherServer implements FileSystemWatcherServer {
         return Promise.resolve();
     }
 
-    setClient(client: FileSystemWatcherClient) {
+    setClient(client: FileSystemWatcherClient | undefined): void {
+        if (client && this.toDispose.disposed) {
+            return;
+        }
         this.client = client;
     }
 
@@ -165,14 +195,32 @@ export class NsfwFileSystemWatcherServer implements FileSystemWatcherServer {
         const uri = FileUri.create(path).toString();
         this.changes.push({ uri, type });
 
-        this.toDisposeOnFileChange.dispose();
-        const timer = setTimeout(() => this.fireDidFilesChanged(), this.fireDidFilesChangedTimeout);
-        this.toDisposeOnFileChange.push(Disposable.create(() => clearTimeout(timer)));
+        this.fireDidFilesChanged();
     }
 
-    protected fireDidFilesChanged(): void {
-        const changes = this.changes;
-        this.changes = [];
+    protected resolvePath(directory: string, file: string): string {
+        const path = paths.join(directory, file);
+        try {
+            return fs.realpathSync(path);
+        } catch {
+            try {
+                // file does not exist try to resolve directory
+                return paths.join(fs.realpathSync(directory), file);
+            } catch {
+                // directory does not exist fall back to symlink
+                return path;
+            }
+        }
+    }
+
+    /**
+     * Fires file changes to clients.
+     * It is debounced in the case if the filesystem is spamming to avoid overwhelming clients with events.
+     */
+    protected readonly fireDidFilesChanged: () => void = debounce(() => this.doFireDidFilesChanged(), 50);
+    protected doFireDidFilesChanged(): void {
+        const changes = this.changes.values();
+        this.changes = new FileChangeCollection();
         const event = { changes };
         if (this.client) {
             this.client.onDidFilesChanged(event);

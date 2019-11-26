@@ -1,19 +1,40 @@
-/*
+/********************************************************************************
  * Copyright (C) 2017 TypeFox and others.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
- */
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v. 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0.
+ *
+ * This Source Code may also be made available under the following Secondary
+ * Licenses when the conditions for such availability set forth in the Eclipse
+ * Public License v. 2.0 are satisfied: GNU General Public License, version 2
+ * with the GNU Classpath Exception which is available at
+ * https://www.gnu.org/software/classpath/license.html.
+ *
+ * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
+ ********************************************************************************/
 
 import { ContainerModule, interfaces } from 'inversify';
 import { OutlineViewService } from './outline-view-service';
 import { OutlineViewContribution } from './outline-view-contribution';
 import { WidgetFactory } from '@theia/core/lib/browser/widget-manager';
-import { FrontendApplicationContribution, createTreeContainer, TreeWidget } from '@theia/core/lib/browser';
+import {
+    FrontendApplicationContribution,
+    createTreeContainer,
+    TreeWidget,
+    bindViewContribution,
+    TreeProps,
+    defaultTreeProps,
+    TreeDecoratorService,
+    TreeModel,
+    TreeModelImpl
+} from '@theia/core/lib/browser';
+import { TabBarToolbarContribution } from '@theia/core/lib/browser/shell/tab-bar-toolbar';
 import { OutlineViewWidgetFactory, OutlineViewWidget } from './outline-view-widget';
-import { CommandContribution } from '@theia/core/lib/common/command';
-import { KeybindingContribution } from '@theia/core/lib/common/keybinding';
-import { MenuContribution } from '@theia/core/lib/common/menu';
+import '../../src/browser/styles/index.css';
+import { bindContributionProvider } from '@theia/core/lib/common/contribution-provider';
+import { OutlineDecoratorService, OutlineTreeDecorator } from './outline-decorator-service';
+import { OutlineViewTreeModel } from './outline-view-tree';
 
 export default new ContainerModule(bind => {
     bind(OutlineViewWidgetFactory).toFactory(ctx =>
@@ -21,20 +42,37 @@ export default new ContainerModule(bind => {
     );
 
     bind(OutlineViewService).toSelf().inSingletonScope();
-    bind(WidgetFactory).toDynamicValue(context => context.container.get(OutlineViewService));
+    bind(WidgetFactory).toService(OutlineViewService);
 
-    bind(OutlineViewContribution).toSelf().inSingletonScope();
-    bind(FrontendApplicationContribution).toDynamicValue(c => c.container.get(OutlineViewContribution));
-    bind(CommandContribution).toDynamicValue(c => c.container.get(OutlineViewContribution));
-    bind(KeybindingContribution).toDynamicValue(c => c.container.get(OutlineViewContribution));
-    bind(MenuContribution).toDynamicValue(c => c.container.get(OutlineViewContribution));
+    bindViewContribution(bind, OutlineViewContribution);
+    bind(FrontendApplicationContribution).toService(OutlineViewContribution);
+    bind(TabBarToolbarContribution).toService(OutlineViewContribution);
 });
 
+/**
+ * Create an `OutlineViewWidget`.
+ * - The creation of the `OutlineViewWidget` includes:
+ *  - The creation of the tree widget itself with it's own customized props.
+ *  - The binding of necessary components into the container.
+ * @param parent the Inversify container.
+ *
+ * @returns the `OutlineViewWidget`.
+ */
 function createOutlineViewWidget(parent: interfaces.Container): OutlineViewWidget {
     const child = createTreeContainer(parent);
 
+    child.rebind(TreeProps).toConstantValue({ ...defaultTreeProps, search: true });
+
     child.unbind(TreeWidget);
     child.bind(OutlineViewWidget).toSelf();
+
+    child.unbind(TreeModelImpl);
+    child.bind(OutlineViewTreeModel).toSelf();
+    child.rebind(TreeModel).toService(OutlineViewTreeModel);
+
+    child.bind(OutlineDecoratorService).toSelf().inSingletonScope();
+    child.rebind(TreeDecoratorService).toDynamicValue(ctx => ctx.container.get(OutlineDecoratorService)).inSingletonScope();
+    bindContributionProvider(child, OutlineTreeDecorator);
 
     return child.get(OutlineViewWidget);
 }

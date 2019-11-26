@@ -1,9 +1,18 @@
-/*
+/********************************************************************************
  * Copyright (C) 2017 TypeFox and others.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
- */
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v. 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0.
+ *
+ * This Source Code may also be made available under the following Secondary
+ * Licenses when the conditions for such availability set forth in the Eclipse
+ * Public License v. 2.0 are satisfied: GNU General Public License, version 2
+ * with the GNU Classpath Exception which is available at
+ * https://www.gnu.org/software/classpath/license.html.
+ *
+ * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
+ ********************************************************************************/
 
 import * as temp from 'temp';
 import * as path from 'path';
@@ -33,15 +42,15 @@ export function waitForDidChange(): Promise<void> {
 const dir = path.resolve(__dirname, '..', '..', 'node-extension-server-test-temp');
 fs.ensureDirSync(dir);
 
-describe("node-extension-server", function () {
+describe('node-extension-server', function (): void {
 
-    beforeEach(function () {
+    beforeEach(function (): void {
         this.timeout(50000);
         appProjectPath = temp.mkdirSync({ dir });
         fs.writeJsonSync(path.resolve(appProjectPath, 'package.json'), {
-            "dependencies": {
-                "@theia/core": "0.1.0",
-                "@theia/extension-manager": "0.1.0"
+            'dependencies': {
+                '@theia/core': '0.1.0',
+                '@theia/extension-manager': '0.1.0'
             }
         });
 
@@ -55,25 +64,25 @@ describe("node-extension-server", function () {
         appProject = container.get(ApplicationProject);
     });
 
-    afterEach(function () {
+    afterEach(function (): void {
         this.timeout(50000);
         server.dispose();
         appProject.dispose();
         fs.removeSync(appProjectPath);
     });
 
-    it("search", function () {
+    it.skip('search', async function (): Promise<void> {
         this.timeout(30000);
 
         return server.search({
-            query: "filesystem scope:theia"
+            query: 'filesystem scope:theia'
         }).then(extensions => {
             assert.equal(extensions.length, 1, JSON.stringify(extensions, undefined, 2));
             assert.equal(extensions[0].name, '@theia/filesystem');
         });
     });
 
-    it("installed", function () {
+    it.skip('installed', async function (): Promise<void> {
         this.timeout(10000);
 
         return server.installed().then(extensions => {
@@ -84,7 +93,7 @@ describe("node-extension-server", function () {
         });
     });
 
-    it("install", async function () {
+    it.skip('install', async function (): Promise<void> {
         this.timeout(10000);
 
         const before = await server.installed();
@@ -92,7 +101,7 @@ describe("node-extension-server", function () {
 
         const onDidChangePackage = waitForDidChange();
 
-        await server.install("@theia/editor");
+        await server.install('@theia/editor');
 
         await onDidChangePackage;
         return server.installed().then(after => {
@@ -100,7 +109,7 @@ describe("node-extension-server", function () {
         });
     });
 
-    it("uninstall", async function () {
+    it.skip('uninstall', async function (): Promise<void> {
         this.timeout(10000);
 
         const before = await server.installed();
@@ -108,7 +117,7 @@ describe("node-extension-server", function () {
 
         const onDidChangePackage = waitForDidChange();
 
-        await server.uninstall("@theia/extension-manager");
+        await server.uninstall('@theia/extension-manager');
 
         await onDidChangePackage;
         return server.installed().then(after => {
@@ -116,7 +125,7 @@ describe("node-extension-server", function () {
         });
     });
 
-    it("outdated", function () {
+    it.skip('outdated', async function (): Promise<void> {
         this.timeout(10000);
 
         return server.outdated().then(extensions => {
@@ -125,7 +134,7 @@ describe("node-extension-server", function () {
         });
     });
 
-    it("update", async function () {
+    it.skip('update', async function (): Promise<void> {
         this.timeout(10000);
 
         const before = await server.outdated();
@@ -133,7 +142,7 @@ describe("node-extension-server", function () {
 
         const onDidChangePackage = waitForDidChange();
 
-        await server.update("@theia/core");
+        await server.update('@theia/core');
 
         await onDidChangePackage;
         return server.outdated().then(after => {
@@ -141,7 +150,7 @@ describe("node-extension-server", function () {
         });
     });
 
-    it("list", function () {
+    it.skip('list', async function (): Promise<void> {
         this.timeout(10000);
 
         return server.list().then(extensions => {
@@ -168,23 +177,23 @@ describe("node-extension-server", function () {
         });
     });
 
-    it("list with search", function () {
-        this.timeout(30000);
+    it.skip('list with search', async function (): Promise<void> {
+        this.timeout(50000);
 
         return server.list({
-            query: "scope:theia"
+            query: 'scope:theia file'
         }).then(extensions => {
-            const filtered = extensions.filter(e => ['@theia/core', '@theia/editor'].indexOf(e.name) !== -1);
+            const filtered = extensions.filter(e => ['@theia/filesystem', '@theia/file-search'].indexOf(e.name) !== -1);
 
             assertExtension({
-                name: '@theia/core',
+                name: '@theia/filesystem',
                 installed: true,
-                outdated: true,
-                dependent: undefined
+                outdated: false,
+                dependent: '@theia/extension-manager'
             }, filtered);
 
             assertExtension({
-                name: '@theia/editor',
+                name: '@theia/file-search',
                 installed: false,
                 outdated: false,
                 dependent: undefined

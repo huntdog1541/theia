@@ -1,19 +1,30 @@
-/*
+/********************************************************************************
  * Copyright (C) 2017 TypeFox and others.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
- */
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v. 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0.
+ *
+ * This Source Code may also be made available under the following Secondary
+ * Licenses when the conditions for such availability set forth in the Eclipse
+ * Public License v. 2.0 are satisfied: GNU General Public License, version 2
+ * with the GNU Classpath Exception which is available at
+ * https://www.gnu.org/software/classpath/license.html.
+ *
+ * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
+ ********************************************************************************/
 
-import { inject, injectable } from "inversify";
-import {
-    CommandContribution, CommandRegistry, Command, MenuContribution, MenuModelRegistry, KeybindingContext,
-    Keybinding, KeybindingContextRegistry, KeybindingContribution, KeybindingRegistry
-} from '@theia/core/lib/common';
-import { EditorCommands, EditorManager, EDITOR_CONTEXT_MENU } from "@theia/editor/lib/browser";
-import { WorkspaceEdit, Workspace } from "@theia/languages/lib/common";
-import { JavaClientContribution } from "./java-client-contribution";
-import { ExecuteCommandRequest } from "monaco-languageclient/lib";
+import { inject, injectable } from 'inversify';
+import { ExecuteCommandRequest } from 'monaco-languageclient/lib';
+import { CommandContribution, CommandRegistry, Command, MenuContribution, MenuModelRegistry } from '@theia/core/lib/common';
+import { EditorCommands, EDITOR_CONTEXT_MENU, EditorManager, EditorWidget } from '@theia/editor/lib/browser';
+import { KeybindingContribution, KeybindingRegistry, PreferenceService, OpenerService } from '@theia/core/lib/browser';
+import { WorkspaceEdit, Workspace } from '@theia/languages/lib/browser';
+import { JAVA_LANGUAGE_ID } from '../common';
+import { JavaClientContribution } from './java-client-contribution';
+import { JavaKeybindingContexts } from './java-keybinding-contexts';
+import { CompileWorkspaceRequest, CompileWorkspaceStatus } from './java-protocol';
+import URI from '@theia/core/lib/common/uri';
 
 /**
  * Show Java references
@@ -33,33 +44,40 @@ export const APPLY_WORKSPACE_EDIT: Command = {
  * Organize Imports
  */
 export const JAVA_ORGANIZE_IMPORTS: Command = {
-    label: 'Java: Organize Imports',
-    id: 'java.edit.organizeImports'
+    id: 'java.edit.organizeImports',
+    category: 'Java',
+    label: 'Organize Imports',
 };
 
-const CONTEXT_ID = 'java.editor.context';
+export const JAVA_COMPILE_WORKSPACE: Command = {
+    id: 'java.workspace.compile'
+};
 
-@injectable()
-export class JavaEditorContext implements KeybindingContext {
-    readonly id = CONTEXT_ID;
+export const JAVA_IGNORE_INCOMPLETE_CLASSPATH: Command = {
+    id: 'java.ignoreIncompleteClasspath'
+};
 
-    constructor( @inject(EditorManager) protected readonly editorService: EditorManager) { }
-
-    isEnabled(arg?: Keybinding) {
-        return this.editorService && !!this.editorService.currentEditor && (this.editorService.currentEditor.editor.document.uri.endsWith(".java"));
-    }
-}
+export const JAVA_IGNORE_INCOMPLETE_CLASSPATH_HELP: Command = {
+    id: 'java.ignoreIncompleteClasspath.help'
+};
 
 @injectable()
 export class JavaCommandContribution implements CommandContribution, MenuContribution, KeybindingContribution {
 
-    constructor(
-        @inject(Workspace) protected readonly workspace: Workspace,
-        @inject(JavaEditorContext) protected readonly editorContext: JavaEditorContext,
-        @inject(KeybindingContextRegistry) protected readonly keybindingContextRegistry: KeybindingContextRegistry,
-        @inject(JavaClientContribution) protected readonly javaClientContribution: JavaClientContribution,
-        @inject(EditorManager) protected readonly editorService: EditorManager
-    ) { }
+    @inject(Workspace)
+    protected readonly workspace: Workspace;
+
+    @inject(EditorManager)
+    protected readonly editorManager: EditorManager;
+
+    @inject(JavaClientContribution)
+    protected readonly javaClientContribution: JavaClientContribution;
+
+    @inject(PreferenceService)
+    protected readonly preferencesService: PreferenceService;
+
+    @inject(OpenerService)
+    protected readonly openerService: OpenerService;
 
     registerCommands(commands: CommandRegistry): void {
         commands.registerCommand(SHOW_JAVA_REFERENCES, {
@@ -72,7 +90,7 @@ export class JavaCommandContribution implements CommandContribution, MenuContrib
         });
         commands.registerCommand(JAVA_ORGANIZE_IMPORTS, {
             execute: async (changes: WorkspaceEdit) => {
-                const editor = this.editorService.activeEditor;
+                const editor = this.currentEditor;
                 if (!editor) {
                     return false;
                 }
@@ -84,18 +102,46 @@ export class JavaCommandContribution implements CommandContribution, MenuContrib
                         uri
                     ]
                 });
-                if (isWorkspaceEdit(result) && this.workspace.applyEdit) {
-                    return await this.workspace.applyEdit(result);
+                if (WorkspaceEdit.is(result) && this.workspace.applyEdit) {
+                    return this.workspace.applyEdit(result);
                 } else {
                     return false;
                 }
             },
-            isVisible: () => {
-                const result = this.editorContext.isEnabled();
-                return result;
-            },
-            isEnabled: () => this.editorContext.isEnabled()
+            isVisible: () => !!this.currentEditor,
+            isEnabled: () => !!this.currentEditor
         });
+        commands.registerCommand(JAVA_COMPILE_WORKSPACE, {
+            execute: async (fullCompile: boolean) => {
+                const languageClient = await this.javaClientContribution.languageClient;
+                const result = await languageClient.sendRequest(CompileWorkspaceRequest.type, fullCompile);
+                if (result === CompileWorkspaceStatus.SUCCEED) {
+                    return;
+                }
+                throw new Error('Failed to build');
+            },
+            isEnabled: () => this.javaClientContribution.running
+        });
+        commands.registerCommand(JAVA_IGNORE_INCOMPLETE_CLASSPATH, {
+            execute: async () => {
+                await this.preferencesService.set('java.errors.incompleteClasspath.severity', 'ignore');
+            }
+        });
+        commands.registerCommand(JAVA_IGNORE_INCOMPLETE_CLASSPATH_HELP, {
+            execute: async () => {
+                const uri = new URI('https://github.com/redhat-developer/vscode-java/wiki/%22Classpath-is-incomplete%22-warning');
+                const opener = await this.openerService.getOpener(uri);
+                await opener.open(uri);
+            }
+        });
+    }
+
+    get currentEditor(): EditorWidget | undefined {
+        const { currentEditor } = this.editorManager;
+        if (currentEditor && currentEditor.editor.document.languageId === JAVA_LANGUAGE_ID) {
+            return currentEditor;
+        }
+        return undefined;
     }
 
     registerMenus(menus: MenuModelRegistry): void {
@@ -106,16 +152,10 @@ export class JavaCommandContribution implements CommandContribution, MenuContrib
     }
 
     registerKeybindings(keybindings: KeybindingRegistry): void {
-        this.keybindingContextRegistry.registerContext(this.editorContext);
         keybindings.registerKeybinding({
             command: JAVA_ORGANIZE_IMPORTS.id,
-            context: CONTEXT_ID,
-            accelerator: ['Accel Shift O'],
-            keybinding: 'ctrlcmd+shift+o'
+            context: JavaKeybindingContexts.javaEditorTextFocus,
+            keybinding: 'shift+alt+o'
         });
     }
-}
-
-function isWorkspaceEdit(edit?: object): edit is WorkspaceEdit {
-    return !!edit && ('changes' in edit || 'documentchanges' in edit);
 }

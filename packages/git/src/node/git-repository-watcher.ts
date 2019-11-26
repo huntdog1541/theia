@@ -1,14 +1,24 @@
-/*
+/********************************************************************************
  * Copyright (C) 2017 TypeFox and others.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
- */
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v. 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0.
+ *
+ * This Source Code may also be made available under the following Secondary
+ * Licenses when the conditions for such availability set forth in the Eclipse
+ * Public License v. 2.0 are satisfied: GNU General Public License, version 2
+ * with the GNU Classpath Exception which is available at
+ * https://www.gnu.org/software/classpath/license.html.
+ *
+ * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
+ ********************************************************************************/
 
-import { injectable, inject } from "inversify";
-import { Disposable, Event, Emitter, ILogger, DisposableCollection } from "@theia/core";
+import { injectable, inject, postConstruct } from 'inversify';
+import { Disposable, Event, Emitter, ILogger } from '@theia/core';
 import { Git, Repository, WorkingDirectoryStatus, GitUtils } from '../common';
-import { GitStatusChangeEvent } from "../common/git-watcher";
+import { GitStatusChangeEvent } from '../common/git-watcher';
+import { Deferred } from '@theia/core/lib/common/promise-util';
 
 export const GitRepositoryWatcherFactory = Symbol('GitRepositoryWatcherFactory');
 export type GitRepositoryWatcherFactory = (options: GitRepositoryWatcherOptions) => GitRepositoryWatcher;
@@ -18,22 +28,11 @@ export class GitRepositoryWatcherOptions {
     readonly repository: Repository;
 }
 
-export const GitRepositoryWatcher = Symbol('GitRepositoryWatcher');
-export interface GitRepositoryWatcher {
-
-    readonly onStatusChanged: Event<GitStatusChangeEvent>;
-
-    sync(): Promise<void>;
-
-    watch(): Disposable;
-
-}
-
 @injectable()
-export class GitRepositoryWatcherImpl implements GitRepositoryWatcher {
+export class GitRepositoryWatcher implements Disposable {
 
-    protected readonly onStatusChangedEmitter = new Emitter<GitStatusChangeEvent>();
-    readonly onStatusChanged: Event<GitStatusChangeEvent> = this.onStatusChangedEmitter.event;
+    protected readonly onGitStatusChangedEmitter = new Emitter<GitStatusChangeEvent>();
+    readonly onGitStatusChanged: Event<GitStatusChangeEvent> = this.onGitStatusChangedEmitter.event;
 
     @inject(Git)
     protected readonly git: Git;
@@ -44,77 +43,88 @@ export class GitRepositoryWatcherImpl implements GitRepositoryWatcher {
     @inject(GitRepositoryWatcherOptions)
     protected readonly options: GitRepositoryWatcherOptions;
 
-    sync(): Promise<void> {
-        return new Promise<void>(resolve => {
-            const toDispose = new DisposableCollection();
-            toDispose.push(this.onStatusChanged(() => {
-                toDispose.dispose();
-                resolve();
-            }));
-            toDispose.push(this.watch());
-        });
+    @postConstruct()
+    protected init(): void {
+        this.spinTheLoop();
     }
 
-    protected references = 0;
-    watch(): Disposable {
-        this.schedule(true);
-        if (this.references === 0) {
-            this.logger.info('Started watching the git repository:', this.options.repository.localUri);
-        }
-        this.references++;
-        return Disposable.create(() => {
-            this.references--;
-            if (this.references === 0) {
-                this.logger.info('Stopped watching the git repository:', this.options.repository.localUri);
-                this.clear();
-            }
-        });
-    }
-
-    protected initial: boolean = true;
-    protected watchTimer: NodeJS.Timer | undefined;
-    protected schedule(initial: boolean = false): void {
-        if (initial && !this.initial) {
-            this.initial = true;
-            this.clear();
-        }
-        if (this.watchTimer) {
+    watch(): void {
+        if (this.watching) {
+            console.debug('Repository watcher is already active.');
             return;
         }
-        this.watchTimer = setTimeout(async () => {
-            this.watchTimer = undefined;
-            const syncInitial = this.initial;
-            this.initial = false;
-            if (await this.syncStatus(syncInitial)) {
-                this.schedule();
-            }
-        }, initial ? 0 : 5000);
+        this.watching = true;
+        this.sync();
     }
-    protected clear(): void {
-        if (this.watchTimer) {
-            clearTimeout(this.watchTimer);
-            this.watchTimer = undefined;
+
+    protected syncWorkPromises: Deferred<void>[] = [];
+    sync(): Promise<void> {
+        if (this.idle) {
+            if (this.interruptIdle) {
+                this.interruptIdle();
+            }
+        } else {
+            this.skipNextIdle = true;
+        }
+        const result = new Deferred<void>();
+        this.syncWorkPromises.push(result);
+        return result.promise;
+    }
+
+    protected disposed = false;
+    dispose(): void {
+        if (!this.disposed) {
+            this.disposed = true;
+            if (this.idle) {
+                if (this.interruptIdle) {
+                    this.interruptIdle();
+                }
+            }
+        }
+    }
+
+    protected watching = false;
+    protected idle = true;
+    protected interruptIdle: (() => void) | undefined;
+    protected skipNextIdle = false;
+    protected async spinTheLoop(): Promise<void> {
+        while (!this.disposed) {
+
+            // idle
+            if (this.skipNextIdle) {
+                this.skipNextIdle = false;
+            } else {
+                const idleTimeout = this.watching ? 5000 : /* super long */ 1000 * 60 * 60 * 24;
+                await new Promise(resolve => {
+                    const id = setTimeout(resolve, idleTimeout);
+                    this.interruptIdle = () => { clearTimeout(id); resolve(); };
+                }).then(() => {
+                    this.interruptIdle = undefined;
+                });
+            }
+
+            // work
+            await this.syncStatus();
+            this.syncWorkPromises.splice(0, this.syncWorkPromises.length).forEach(d => d.resolve());
         }
     }
 
     protected status: WorkingDirectoryStatus | undefined;
-    protected async syncStatus(initial: boolean = false): Promise<boolean> {
+    protected async syncStatus(): Promise<void> {
         try {
             const source = this.options.repository;
-            const newStatus = await this.git.status(source);
             const oldStatus = this.status;
-            if (initial || !WorkingDirectoryStatus.equals(newStatus, oldStatus)) {
+            const newStatus = await this.git.status(source);
+            if (!WorkingDirectoryStatus.equals(newStatus, oldStatus)) {
                 this.status = newStatus;
-                this.onStatusChangedEmitter.fire({ source, status: newStatus, oldStatus });
+                this.onGitStatusChangedEmitter.fire({ source, status: newStatus, oldStatus });
             }
         } catch (error) {
-            if (GitUtils.isRepositoryDoesNotExistError(error)) {
-                return false;
+            if (!GitUtils.isRepositoryDoesNotExistError(error)) {
+                const { localUri } = this.options.repository;
+                this.logger.error('Error occurred while synchronizing the status of the repository.', localUri, error);
             }
-            const { localUri } = this.options.repository;
-            this.logger.error(`Error occurred while synchronizing the status of the repository.`, localUri, error);
         }
-        return true;
     }
 
 }

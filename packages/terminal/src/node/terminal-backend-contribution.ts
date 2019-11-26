@@ -1,65 +1,48 @@
-/*
+/********************************************************************************
  * Copyright (C) 2017 TypeFox and others.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
- */
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v. 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0.
+ *
+ * This Source Code may also be made available under the following Secondary
+ * Licenses when the conditions for such availability set forth in the Eclipse
+ * Public License v. 2.0 are satisfied: GNU General Public License, version 2
+ * with the GNU Classpath Exception which is available at
+ * https://www.gnu.org/software/classpath/license.html.
+ *
+ * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
+ ********************************************************************************/
 
-import * as http from 'http';
-import * as https from 'https';
-import { injectable, inject } from 'inversify';
-import URI from "@theia/core/lib/common/uri";
-import { ILogger } from "@theia/core/lib/common";
-import { TerminalProcess, ProcessManager, MultiRingBufferReadableStream } from "@theia/process/lib/node";
-import { BackendApplicationContribution } from '@theia/core/lib/node';
-import { openSocket } from '@theia/core/lib/node';
+import { injectable, inject, named } from 'inversify';
+import { ILogger } from '@theia/core/lib/common';
+import { TerminalProcess, ProcessManager } from '@theia/process/lib/node';
+import { terminalsPath } from '../common/terminal-protocol';
+import { MessagingService } from '@theia/core/lib/node/messaging/messaging-service';
 
 @injectable()
-export class TerminalBackendContribution implements BackendApplicationContribution {
+export class TerminalBackendContribution implements MessagingService.Contribution {
 
-    constructor(
-        @inject(ProcessManager) protected readonly processManager: ProcessManager,
-        @inject(ILogger) protected readonly logger: ILogger) {
-    }
+    @inject(ProcessManager)
+    protected readonly processManager: ProcessManager;
 
-    onStart(server: http.Server | https.Server): void {
-        openSocket({
-            server,
-            matches: request => {
-                const uri = new URI(request.url!);
-                return uri.path.toString().startsWith('/services/terminals/');
-            }
-        }, (ws, request) => {
-            const uri = new URI(request.url!);
-            const id = parseInt(uri.path.base, 10);
+    @inject(ILogger) @named('terminal')
+    protected readonly logger: ILogger;
+
+    configure(service: MessagingService): void {
+        service.listen(`${terminalsPath}/:id`, (params: { id: string }, connection) => {
+            const id = parseInt(params.id, 10);
             const termProcess = this.processManager.get(id);
-            if (!(termProcess instanceof TerminalProcess)) {
-                return;
+            if (termProcess instanceof TerminalProcess) {
+                const output = termProcess.createOutputStream();
+                output.on('data', data => connection.sendNotification('onData', data.toString()));
+                connection.onRequest('write', (data: string) => termProcess.write(data));
+                connection.onClose(() => output.dispose());
+                connection.listen();
+            } else {
+                connection.dispose();
             }
-
-            /* Note this typecast will be refactored after #841 */
-            const output: MultiRingBufferReadableStream | undefined = termProcess.createOutputStream();
-            output.on('data', (data: string) => {
-                try {
-                    ws.send(data);
-                } catch (ex) {
-                    this.logger.warn(ex.message, ex);
-                }
-            });
-
-            ws.on('error', err => {
-                this.logger.warn(err.message, err);
-            });
-
-            ws.on('message', (msg: any) => {
-                if (termProcess instanceof TerminalProcess) {
-                    termProcess.write(msg);
-                }
-            });
-            // tslint:disable-next-line:no-any
-            ws.on('close', (msg: any) => {
-                output.dispose();
-            });
         });
     }
+
 }
